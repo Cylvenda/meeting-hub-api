@@ -32,12 +32,11 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    first_name = models.CharField(max_length=60)
-    last_name = models.CharField(max_length=60)
+    first_name = models.CharField(max_length=60, blank=True, null=True)
+    last_name = models.CharField(max_length=60, blank=True, null=True)
+    username = models.CharField(max_length=60, unique=True, blank=True, null=True)
     email = models.EmailField(unique=True, max_length=255)
-    username = models.CharField(max_length=60, unique=True)
     phone = models.CharField(max_length=20, unique=True)
-
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
 
