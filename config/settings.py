@@ -147,6 +147,18 @@ AUTH_USER_MODEL = "accounts.User"
 DJOSER = {
     "LOGIN_FIELD": "email",
     "SEND_ACTIVATION_EMAIL": True,
-    "ACTIVATION_URL": "meetin/activate/{uid}/{token}",
-    "SEND_ACTIVATION_EMAIL": True,
+    "ACTIVATION_URL": "activate/{uid}/{token}",
+    "SERIALIZERS": {
+        "activation": "djoser.serializers.ActivationSerializer",
+        "user_create": "djoser.serializers.UserCreateSerializer",
+        "user_delete": "djoser.serializers.UserDeleteSerializer",
+    },
 }
+
+
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = "cylvenda@gmail.com"
+EMAIL_HOST_PASSWORD = "shqv idsa rdye ifui"
