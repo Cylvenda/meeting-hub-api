@@ -1,0 +1,153 @@
+{% block subject %}
+Activate your Meeting Hub account
+{% endblock subject %}
+
+{% block text_body %}
+Hello,
+
+Thank you for joining {{ site_name|default:"Meeting Hub" }}.
+To start using your account, please confirm your email address using the link below:
+
+{{ protocol }}://{{ domain }}/{{ url|safe }}
+
+This activation link will expire for security reasons.
+
+If you did not create this account, you can safely ignore this email.
+
+Regards,
+Meet Back Team
+{% endblock text_body %}
+
+{% block html_body %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Activate Your Account</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f4f6f9;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background: #ffffff;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        .header {
+            background: linear-gradient(135deg, #0aadce, #2563eb);
+            padding: 30px;
+            text-align: center;
+            color: #ffffff;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            letter-spacing: 1px;
+        }
+
+        .content {
+            padding: 30px;
+            color: #333333;
+        }
+
+        .content h2 {
+            margin-top: 0;
+            font-size: 20px;
+        }
+
+        .content p {
+            line-height: 1.6;
+            margin: 15px 0;
+        }
+
+        .button {
+            display: inline-block;
+            margin: 25px 0;
+            padding: 14px 24px;
+            background: #2563eb;
+            color: #ffffff !important;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+        }
+
+        .link-box {
+            background: #f1f5f9;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            word-break: break-all;
+        }
+
+        .footer {
+            padding: 20px;
+            text-align: center;
+            font-size: 13px;
+            color: #777777;
+            border-top: 1px solid #eeeeee;
+        }
+
+        @media (max-width: 600px) {
+            .content {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Meeting Hub</h1>
+            <p>Secure Virtual Meeting Platform</p>
+        </div>
+
+        <div class="content">
+            <h2>Activate Your Account</h2>
+
+            <p>Hello,</p>
+
+            <p>
+                Thank you for joining <strong>{{ site_name|default:"Meeting Hub" }}</strong>.
+                To start using your account, please confirm your email address.
+            </p>
+
+            <div style="text-align: center;">
+                <a href="{{ protocol }}://{{ domain }}/{{ url|safe }}" class="button">
+                    Activate Account
+                </a>
+            </div>
+
+            <p>If the button above doesn't work, copy and paste this link into your browser:</p>
+
+            <div class="link-box">
+                {{ protocol }}://{{ domain }}/{{ url|safe }}
+            </div>
+
+            <p>This activation link will expire for security reasons.</p>
+
+            <p>If you did not create this account, you can safely ignore this email.</p>
+
+            <p>
+                Regards,<br>
+                <strong>Meeting Hub Team</strong>
+            </p>
+        </div>
+
+        <div class="footer">
+            &copy; {{ site_name|default:"Meeting Hub" }} - All rights reserved<br>
+            Secure • Private • Reliable
+        </div>
+    </div>
+</body>
+</html>
+{% endblock html_body %}
