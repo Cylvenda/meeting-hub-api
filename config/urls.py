@@ -13,4 +13,6 @@ urlpatterns = [
     path("", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     # groups endpoints
     path("api/groups/", include("apps.groups.urls")),
+    # groups endpoints
+    path("api/notifications/", include("apps.notifications.urls")),
 ]

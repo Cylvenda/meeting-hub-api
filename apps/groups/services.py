@@ -1,10 +1,13 @@
+import logging
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
 
-from .models import GroupInvitation
+from apps.notifications.services import create_notification
+from apps.notifications.models import Notification
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def send_group_invitation_email(invitation):
@@ -27,8 +30,8 @@ def send_membership_verified_email(user, group):
     subject = f"Your membership in {group.name} has been verified"
     message = (
         f"Hello,\n\n"
-        f"Your membership in the group '{group.name}' has been verified successfully.\n"
-        f"You can now participate as an approved member."
+        f"Your membership in '{group.name}' has been verified.\n"
+        f"You can now participate as a verified member."
     )
 
     send_mail(
@@ -40,52 +43,54 @@ def send_membership_verified_email(user, group):
     )
 
 
-def create_group_notification(user, title, message, notification_type="group"):
-    from apps.notifications.models import Notification
-
-    return Notification.objects.create(
-        user=user,
-        title=title,
-        message=message,
-        notification_type=notification_type,
-    )
-
-
-def notify_group_invitation_sent(invitation):
-    send_group_invitation_email(invitation)
+def notify_invitation_sent(invitation):
+    try:
+        send_group_invitation_email(invitation)
+    except Exception:
+        logger.exception(
+            "Failed to send invitation email for invitation %s", invitation.uuid
+        )
 
     existing_user = User.objects.filter(email=invitation.email).first()
     if existing_user:
-        create_group_notification(
+        create_notification(
             user=existing_user,
             title="New Group Invitation",
             message=f"You have been invited to join '{invitation.group.name}'.",
-            notification_type="group_invitation",
+            notification_type=Notification.NotificationType.GROUP_INVITATION,
+            group_uuid=invitation.group.uuid,
+            invitation_uuid=invitation.uuid,
         )
 
 
-def notify_group_invitation_accepted(invitation):
-    host_user = invitation.invited_by
+def notify_invitation_accepted(invitation):
+    try:
+        create_notification(
+            user=invitation.invited_by,
+            title="Invitation Accepted",
+            message=f"{invitation.email} accepted the invitation to join '{invitation.group.name}'.",
+            notification_type=Notification.NotificationType.INVITATION_ACCEPTED,
+            group_uuid=invitation.group.uuid,
+            invitation_uuid=invitation.uuid,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create acceptance notification for invitation %s",
+            invitation.uuid,
+        )
 
-    create_group_notification(
-        user=host_user,
-        title="Invitation Accepted",
-        message=(
-            f"{invitation.email} accepted the invitation to join "
-            f"'{invitation.group.name}'."
-        ),
-        notification_type="group_invitation",
-    )
 
-
-def notify_membership_verified(membership):
-    create_group_notification(
-        user=membership.user,
-        title="Membership Verified",
-        message=(
-            f"Your membership in '{membership.group.name}' " f"has been verified."
-        ),
-        notification_type="group_membership",
-    )
-
-    send_membership_verified_email(membership.user, membership.group)
+def notify_invitation_declined(invitation):
+    try:
+        create_notification(
+            user=invitation.invited_by,
+            title="Invitation Declined",
+            message=f"{invitation.email} declined the invitation to join '{invitation.group.name}'.",
+            notification_type=Notification.NotificationType.GENERAL,
+            group_uuid=invitation.group.uuid,
+            invitation_uuid=invitation.uuid,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create decline notification for invitation %s", invitation.uuid
+        )

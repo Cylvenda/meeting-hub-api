@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import Group, GroupMembership, GroupInvitation
 from django.contrib.auth import get_user_model
+from rest_framework import  permissions
 
 User = get_user_model()
 
@@ -50,7 +51,7 @@ class GroupSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def get_members_count(self, obj):
+    def get_members_count(self, obj) -> int:
         return obj.memberships.count()
 
 
@@ -124,35 +125,96 @@ class AddGroupMemberSerializer(serializers.Serializer):
 
         return membership
 
-class SendInvitationSerializer(serializers.Serializer):
+
+class SendGroupInvitationSerializer(serializers.Serializer):
     email = serializers.EmailField()
+    message = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, attrs):
-        email = attrs["email"]
+        email = attrs["email"].strip().lower()
         group = self.context["group"]
 
-        # check already a member
-        user = User.objects.filter(email=email).first()
-        if user and GroupMembership.objects.filter(group=group, user=user).exists():
-            raise serializers.ValidationError("User is already a member.")
+        invited_user = User.objects.filter(email=email).first()
 
-        # check existing invitation
+        if (
+            invited_user
+            and GroupMembership.objects.filter(group=group, user=invited_user).exists()
+        ):
+            raise serializers.ValidationError(
+                {"email": "This user is already a member of the group."}
+            )
+
         if GroupInvitation.objects.filter(
-            group=group, email=email, status=GroupInvitation.Status.PENDING
+            group=group,
+            email=email,
+            status=GroupInvitation.Status.PENDING,
         ).exists():
-            raise serializers.ValidationError("Invitation already sent.")
+            raise serializers.ValidationError(
+                {
+                    "email": "A pending invitation already exists for this email in this group."
+                }
+            )
 
+        attrs["email"] = email
         return attrs
 
     def create(self, validated_data):
         group = self.context["group"]
-        user = self.context["request"].user
+        invited_by = self.context["request"].user
 
         invitation = GroupInvitation.objects.create(
-            group=group, email=validated_data["email"], invited_by=user
+            group=group,
+            email=validated_data["email"],
+            invited_by=invited_by,
+            message=validated_data.get("message", ""),
         )
-
         return invitation
+
+
+class GroupInvitationSerializer(serializers.ModelSerializer):
+    group_uuid = serializers.UUIDField(source="group.uuid", read_only=True)
+    group_name = serializers.CharField(source="group.name", read_only=True)
+    invitation_uuid = serializers.UUIDField(source="uuid", read_only=True)
+    invited_by_email = serializers.EmailField(source="invited_by.email", read_only=True)
+
+    class Meta:
+        model = GroupInvitation
+        fields = [
+            "invitation_uuid",
+            "group_uuid",
+            "group_name",
+            "email",
+            "invited_by_email",
+            "status",
+            "message",
+            "created_at",
+            "responded_at",
+        ]
+
+
+class RespondGroupInvitationSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=["accept", "decline"])
+
+    def validate(self, attrs):
+        invitation = self.context["invitation"]
+        request_user = self.context["request"].user
+
+        if request_user.email.strip().lower() != invitation.email.strip().lower():
+            raise serializers.ValidationError(
+                {"detail": "You are not allowed to respond to this invitation."}
+            )
+
+        if invitation.status != GroupInvitation.Status.PENDING:
+            raise serializers.ValidationError(
+                {"detail": "This invitation has already been handled."}
+            )
+
+        return attrs
+
+
+class EmptySerializer(serializers.Serializer):
+    pass
+
 
 # verify group members
 class VerifyGroupMemberSerializer(serializers.Serializer):
@@ -162,21 +224,9 @@ class VerifyGroupMemberSerializer(serializers.Serializer):
 # changing group member status
 class ToggleGroupMemberActiveSerializer(serializers.Serializer):
     is_active = serializers.BooleanField()
+    serializer_class = EmptySerializer
+    permission_classes = [permissions.IsAuthenticated]
 
 
 class RespondInvitationSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["accept", "decline"])
-
-
-class GroupInvitationSerializer(serializers.ModelSerializer):
-    group_name = serializers.CharField(source="group.name", read_only=True)
-
-    class Meta:
-        model = GroupInvitation
-        fields = [
-            "uuid",
-            "group_name",
-            "email",
-            "status",
-            "created_at",
-        ]

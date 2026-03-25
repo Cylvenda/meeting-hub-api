@@ -7,8 +7,12 @@ from .views import (
     VerifyGroupMemberView,
     ToggleGroupMemberActiveView,
     SendGroupInvitationView,
-    MyInvitationsView,
-    RespondInvitationView,
+    SendGroupInvitationView,
+    GroupInvitationListView,
+    MyGroupInvitationListView,
+    RespondGroupInvitationView,
+    CancelGroupInvitationView,
+
 )
 
 urlpatterns = [
@@ -35,19 +39,28 @@ urlpatterns = [
         name="group-member-activate",
     ),
     path(
-        "groups/<uuid:group_uuid>/invite/",
+        "<uuid:group_uuid>/invitations/send/",
         SendGroupInvitationView.as_view(),
-        name="send-group-invitations-emails",
+        name="send-group-invitation",
     ),
     path(
-        "my-invitations/",
-        MyInvitationsView.as_view(),
-        name="listing-all-my-invitations",
-        
+        "<uuid:group_uuid>/invitations/",
+        GroupInvitationListView.as_view(),
+        name="group-invitation-list",
+    ),
+    path(
+        "invitations/my/",
+        MyGroupInvitationListView.as_view(),
+        name="my-group-invitations",
     ),
     path(
         "invitations/<uuid:invitation_uuid>/respond/",
-        RespondInvitationView.as_view(),
-        name="user-invitations-responds",
+        RespondGroupInvitationView.as_view(),
+        name="respond-group-invitation",
+    ),
+    path(
+        "<uuid:group_uuid>/invitations/<uuid:invitation_uuid>/cancel/",
+        CancelGroupInvitationView.as_view(),
+        name="cancel-group-invitation",
     ),
 ]

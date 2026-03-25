@@ -11,11 +11,23 @@ from .serializers import (
     GroupMembershipSerializer,
     VerifyGroupMemberSerializer,
     ToggleGroupMemberActiveSerializer,
-    SendInvitationSerializer,
+    SendGroupInvitationSerializer,
+    GroupInvitationSerializer,
+    RespondGroupInvitationSerializer,
+    GroupMembershipSerializer,
     GroupInvitationSerializer,
     RespondInvitationSerializer,
+    EmptySerializer,
 )
 from .permissions import is_group_host, get_group_or_404
+from django.contrib.auth import get_user_model
+from .services import (
+    notify_invitation_sent,
+    notify_invitation_accepted,
+    notify_invitation_declined,
+)
+
+User = get_user_model()
 
 
 class GroupListCreateView(generics.ListCreateAPIView):
@@ -122,6 +134,7 @@ class VerifyGroupMemberView(generics.GenericAPIView):
 
 # changing group members status [activate & deactivate]
 class ToggleGroupMemberActiveView(generics.GenericAPIView):
+    serializer_class = EmptySerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def patch(self, request, group_uuid, membership_uuid):
@@ -160,7 +173,7 @@ class ToggleGroupMemberActiveView(generics.GenericAPIView):
 
 
 class SendGroupInvitationView(generics.GenericAPIView):
-    serializer_class = SendInvitationSerializer
+    serializer_class = SendGroupInvitationSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, group_uuid):
@@ -168,47 +181,67 @@ class SendGroupInvitationView(generics.GenericAPIView):
         is_group_host(request.user, group)
 
         serializer = self.get_serializer(
-            data=request.data, context={"group": group, "request": request}
+            data=request.data,
+            context={"group": group, "request": request},
         )
         serializer.is_valid(raise_exception=True)
         invitation = serializer.save()
 
+        notify_invitation_sent(invitation)
+
         return Response(
-            GroupInvitationSerializer(invitation).data, status=status.HTTP_201_CREATED
+            {
+                "detail": "Invitation sent successfully.",
+                "data": GroupInvitationSerializer(invitation).data,
+            },
+            status=status.HTTP_201_CREATED,
         )
 
 
-class MyInvitationsView(generics.ListAPIView):
+class GroupInvitationListView(generics.ListAPIView):
     serializer_class = GroupInvitationSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return GroupInvitation.objects.filter(
-            email=self.request.user.email, status=GroupInvitation.Status.PENDING
-        ).select_related("group")
+        group = get_group_or_404(self.kwargs["group_uuid"])
+        is_group_host(self.request.user, group)
+
+        return (
+            GroupInvitation.objects.filter(group=group)
+            .select_related("group", "invited_by")
+            .order_by("-created_at")
+        )
 
 
-class RespondInvitationView(generics.GenericAPIView):
-    serializer_class = RespondInvitationSerializer
+class MyGroupInvitationListView(generics.ListAPIView):
+    serializer_class = GroupInvitationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return (
+            GroupInvitation.objects.filter(
+                email=self.request.user.email,
+                status=GroupInvitation.Status.PENDING,
+            )
+            .select_related("group", "invited_by")
+            .order_by("-created_at")
+        )
+
+
+class RespondGroupInvitationView(generics.GenericAPIView):
+    serializer_class = RespondGroupInvitationSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, invitation_uuid):
-        invitation = get_object_or_404(GroupInvitation, uuid=invitation_uuid)
+        invitation = get_object_or_404(
+            GroupInvitation.objects.select_related("group", "invited_by"),
+            uuid=invitation_uuid,
+        )
 
-        # security check
-        if request.user.email != invitation.email:
-            return Response(
-                {"detail": "You are not allowed to respond to this invitation."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        if invitation.status != GroupInvitation.Status.PENDING:
-            return Response(
-                {"detail": "Invitation already handled."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(
+            data=request.data,
+            context={"invitation": invitation, "request": request},
+        )
         serializer.is_valid(raise_exception=True)
 
         action = serializer.validated_data["action"]
@@ -216,15 +249,19 @@ class RespondInvitationView(generics.GenericAPIView):
         if action == "decline":
             invitation.status = GroupInvitation.Status.DECLINED
             invitation.responded_at = timezone.now()
-            invitation.save()
-            return Response({"detail": "Invitation declined."})
+            invitation.save(update_fields=["status", "responded_at"])
 
-        # ACCEPT
+            notify_invitation_declined(invitation)
+
+            return Response(
+                {"detail": "Invitation declined successfully."},
+                status=status.HTTP_200_OK,
+            )
+
         invitation.status = GroupInvitation.Status.ACCEPTED
         invitation.responded_at = timezone.now()
-        invitation.save()
+        invitation.save(update_fields=["status", "responded_at"])
 
-        # create membership
         membership, created = GroupMembership.objects.get_or_create(
             group=invitation.group,
             user=request.user,
@@ -235,6 +272,43 @@ class RespondInvitationView(generics.GenericAPIView):
             },
         )
 
+        notify_invitation_accepted(invitation)
+
         return Response(
-            {"detail": "Invitation accepted.", "membership_id": str(membership.uuid)}
+            {
+                "detail": "Invitation accepted successfully.",
+                "membership": GroupMembershipSerializer(membership).data,
+                "created": created,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CancelGroupInvitationView(generics.GenericAPIView):
+    serializer_class = EmptySerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, group_uuid, invitation_uuid):
+        group = get_group_or_404(group_uuid)
+        is_group_host(request.user, group)
+
+        invitation = get_object_or_404(
+            GroupInvitation,
+            uuid=invitation_uuid,
+            group=group,
+        )
+
+        if invitation.status != GroupInvitation.Status.PENDING:
+            return Response(
+                {"detail": "Only pending invitations can be cancelled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        invitation.status = GroupInvitation.Status.CANCELLED
+        invitation.responded_at = timezone.now()
+        invitation.save(update_fields=["status", "responded_at"])
+
+        return Response(
+            {"detail": "Invitation cancelled successfully."},
+            status=status.HTTP_200_OK,
         )
