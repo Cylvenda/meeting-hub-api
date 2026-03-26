@@ -7,7 +7,6 @@ from .views import (
     VerifyGroupMemberView,
     ToggleGroupMemberActiveView,
     SendGroupInvitationView,
-    SendGroupInvitationView,
     GroupInvitationListView,
     MyGroupInvitationListView,
     RespondGroupInvitationView,

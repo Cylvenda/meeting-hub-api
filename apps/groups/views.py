@@ -10,13 +10,11 @@ from .serializers import (
     AddGroupMemberSerializer,
     GroupMembershipSerializer,
     VerifyGroupMemberSerializer,
-    ToggleGroupMemberActiveSerializer,
     SendGroupInvitationSerializer,
     GroupInvitationSerializer,
     RespondGroupInvitationSerializer,
     GroupMembershipSerializer,
     GroupInvitationSerializer,
-    RespondInvitationSerializer,
     EmptySerializer,
 )
 from .permissions import is_group_host, get_group_or_404
