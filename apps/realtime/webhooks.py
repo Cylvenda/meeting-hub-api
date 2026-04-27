@@ -6,6 +6,7 @@ from apps.meetings.models import Meeting
 from apps.meetings.services import join_meeting, leave_meeting
 from apps.notifications.services import create_notification
 from apps.notifications.models import Notification
+from .services import resolve_live_meeting_user
 
 
 @csrf_exempt
@@ -37,12 +38,10 @@ def livekit_webhook(request):
     if meeting.status != "ongoing":
         return JsonResponse({"status": "ignored"})
 
-    user = meeting.group.members.filter(
-        uuid=participant_identity,
-        group_memberships__group=meeting.group,
-        group_memberships__is_verified=True,
-        group_memberships__is_active=True,
-    ).first()
+    user = resolve_live_meeting_user(
+        meeting=meeting,
+        participant_identity=participant_identity,
+    )
     if not user:
         return JsonResponse({"error": "User not authorized for this meeting"}, status=403)
 

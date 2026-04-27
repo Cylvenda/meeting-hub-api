@@ -11,6 +11,7 @@ from .services import (
     LiveKitConfigurationError,
     LiveKitUnavailableError,
     generate_livekit_access_token,
+    resolve_live_meeting_user,
     user_can_join_live_meeting,
 )
 

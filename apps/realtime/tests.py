@@ -144,6 +144,28 @@ class RealtimeFlowTests(APITestCase):
         self.assertGreaterEqual(attendance.total_duration_minutes, 0)
         self.assertEqual(Notification.objects.filter(user=self.member).count(), 2)
 
+    def test_webhook_allows_host_presence_events_even_without_membership_row(self):
+        GroupMembership.objects.filter(user=self.host, group=self.group).delete()
+
+        response = self.client.post(
+            reverse("realtime-livekit-webhook"),
+            data={
+                "event": "participant_joined",
+                "room": {"name": str(self.meeting.uuid)},
+                "participant": {"identity": str(self.host.uuid)},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            ParticipantSession.objects.filter(
+                meeting=self.meeting,
+                user=self.host,
+                left_at__isnull=True,
+            ).exists()
+        )
+
     def test_webhook_ignores_events_for_non_ongoing_meetings(self):
         self.meeting.status = "ended"
         self.meeting.actual_end = timezone.now()

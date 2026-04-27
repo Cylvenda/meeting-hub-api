@@ -159,9 +159,7 @@ class MeetingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"])
     def participants(self, request, uuid=None):
         meeting = self.get_object()
-        sessions = meeting.participant_sessions.filter(left_at__isnull=True).select_related(
-            "user"
-        )
+        sessions = meeting.participant_sessions.select_related("user").order_by("-joined_at")
         serializer = ParticipantSessionSerializer(sessions, many=True)
         return Response(serializer.data)
 

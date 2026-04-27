@@ -15,6 +15,18 @@ class LiveKitUnavailableError(LiveKitTokenError):
     pass
 
 
+def resolve_live_meeting_user(*, meeting, participant_identity):
+    if str(meeting.host.uuid) == str(participant_identity):
+        return meeting.host
+
+    return meeting.group.members.filter(
+        uuid=participant_identity,
+        group_memberships__group=meeting.group,
+        group_memberships__is_verified=True,
+        group_memberships__is_active=True,
+    ).first()
+
+
 def user_can_join_live_meeting(*, meeting, user):
     if meeting.host == user:
         return True
