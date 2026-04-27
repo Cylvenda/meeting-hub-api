@@ -25,7 +25,13 @@ def get_open_session(meeting, user):
 
 @transaction.atomic
 def join_meeting(meeting, user, is_verified_member=True):
-    open_session = get_open_session(meeting, user)
+    # Lock to prevent duplicate session creation
+    open_session = (
+        ParticipantSession.objects.select_for_update()
+        .filter(meeting=meeting, user=user, left_at__isnull=True)
+        .first()
+    )
+
     if open_session:
         return open_session
 
@@ -34,7 +40,7 @@ def join_meeting(meeting, user, is_verified_member=True):
         user=user,
     )
 
-    attendance, _ = Attendance.objects.get_or_create(
+    attendance, created = Attendance.objects.get_or_create(
         meeting=meeting,
         user=user,
         defaults={
@@ -44,8 +50,11 @@ def join_meeting(meeting, user, is_verified_member=True):
         },
     )
 
-    if not attendance.first_joined_at:
-        attendance.first_joined_at = session.joined_at
+    # Ensure first join is always recorded correctly
+    if not created:
+        if attendance.first_joined_at is None:
+            attendance.first_joined_at = session.joined_at
+
         attendance.is_verified_member = is_verified_member
         attendance.status = "present"
         attendance.save()
@@ -62,51 +71,44 @@ def join_meeting(meeting, user, is_verified_member=True):
 
 @transaction.atomic
 def leave_meeting(meeting, user):
-    open_session = get_open_session(meeting, user)
-    if not open_session:
+    session = (
+        ParticipantSession.objects.select_for_update()
+        .filter(meeting=meeting, user=user, left_at__isnull=True)
+        .first()
+    )
+
+    if not session:
         return None
 
-    open_session.left_at = timezone.now()
-    open_session.save()
+    now = timezone.now()
+    session.left_at = now
+    session.save()
 
     attendance, _ = Attendance.objects.get_or_create(
         meeting=meeting,
         user=user,
     )
 
-    sessions = ParticipantSession.objects.filter(
-        meeting=meeting, user=user, left_at__isnull=False
-    )
+    # Only calculate current session impact
+    session_duration = (session.left_at - session.joined_at).total_seconds()
 
-    total_seconds = 0
-    first_joined_at = None
-    last_left_at = None
+    attendance.total_duration_minutes += int(session_duration // 60)
 
-    for session in sessions:
-        duration = (session.left_at - session.joined_at).total_seconds()
-        total_seconds += max(duration, 0)
+    if attendance.first_joined_at is None:
+        attendance.first_joined_at = session.joined_at
 
-        if first_joined_at is None or session.joined_at < first_joined_at:
-            first_joined_at = session.joined_at
-
-        if last_left_at is None or session.left_at > last_left_at:
-            last_left_at = session.left_at
-
-    total_minutes = int(total_seconds // 60)
-
-    attendance.first_joined_at = first_joined_at
-    attendance.last_left_at = last_left_at
-    attendance.total_duration_minutes = total_minutes
+    attendance.last_left_at = now
+    attendance.status = "present"  # temporary until finalization
     attendance.save()
 
     log_meeting_action(
         meeting=meeting,
         action="participant_left",
         user=user,
-        metadata={"left_at": open_session.left_at.isoformat()},
+        metadata={"left_at": now.isoformat()},
     )
 
-    return open_session
+    return session
 
 
 def calculate_attendance_status(total_minutes, meeting_duration_minutes):
@@ -131,12 +133,15 @@ def finalize_meeting_attendance(meeting):
         (meeting.actual_end - meeting.actual_start).total_seconds() // 60
     )
 
-    for attendance in meeting.attendance_records.all():
+    attendances = Attendance.objects.filter(meeting=meeting)
+
+    for attendance in attendances:
         attendance.status = calculate_attendance_status(
             attendance.total_duration_minutes,
             meeting_duration_minutes,
         )
-        attendance.save()
+
+    Attendance.objects.bulk_update(attendances, ["status"])
 
     log_meeting_action(
         meeting=meeting,

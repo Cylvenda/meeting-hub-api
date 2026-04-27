@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -11,34 +12,27 @@ class Meeting(models.Model):
         ("cancelled", "Cancelled"),
     ]
 
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
-
     group = models.ForeignKey(
         "groups.Group", on_delete=models.CASCADE, related_name="meetings"
     )
-
     host = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="hosted_meetings",
     )
-
     scheduled_start = models.DateTimeField()
     scheduled_end = models.DateTimeField(blank=True, null=True)
-
     actual_start = models.DateTimeField(blank=True, null=True)
     actual_end = models.DateTimeField(blank=True, null=True)
-
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default="scheduled"
     )
-
     is_locked = models.BooleanField(default=False)
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
     class Meta:
         ordering = ["-scheduled_start"]
 
@@ -47,6 +41,7 @@ class Meeting(models.Model):
 
 
 class AgendaItem(models.Model):
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     meeting = models.ForeignKey(
         Meeting, on_delete=models.CASCADE, related_name="agenda_items"
     )
@@ -65,6 +60,7 @@ class AgendaItem(models.Model):
 
 
 class Attendance(models.Model):
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     STATUS_CHOICES = [
         ("present", "Present"),
         ("late", "Late"),
@@ -100,6 +96,7 @@ class Attendance(models.Model):
 
 
 class ParticipantSession(models.Model):
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     meeting = models.ForeignKey(
         Meeting, on_delete=models.CASCADE, related_name="participant_sessions"
     )
@@ -120,6 +117,7 @@ class ParticipantSession(models.Model):
 
 
 class MeetingMinutes(models.Model):
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     meeting = models.OneToOneField(
         Meeting, on_delete=models.CASCADE, related_name="minutes"
     )
@@ -141,6 +139,7 @@ class MeetingMinutes(models.Model):
 
 
 class MeetingAuditLog(models.Model):
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     meeting = models.ForeignKey(
         Meeting, on_delete=models.CASCADE, related_name="audit_logs"
     )

@@ -30,4 +30,7 @@ class IsHostOrVerifiedMemberReadOnly(BasePermission):
         if request.method in SAFE_METHODS:
             return is_member
 
+        if getattr(view, "action", None) in {"join", "leave"}:
+            return is_member
+
         return False

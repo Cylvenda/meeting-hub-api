@@ -1,56 +1,28 @@
 from django.conf import settings
-from django.middleware.csrf import get_token
-
-from rest_framework import status
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
+from django.contrib.auth import get_user_model
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+    TokenVerifyView,
+)
+from rest_framework import generics, permissions
 from rest_framework.views import APIView
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from rest_framework_simplejwt.serializers import TokenRefreshSerializer
-from .serializers import EmailTokenObtainPairSerializer
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
+from apps.groups.models import Group
+
+from .serializers import (
+    AdminGroupManageSerializer,
+    AdminUserManageSerializer,
+    CustomUserSerializer,
+)
+
+User = get_user_model()
 
 
-def set_auth_cookies(response, access_token=None, refresh_token=None):
-    if access_token:
-        response.set_cookie(
-            key=settings.AUTH_COOKIE_ACCESS,
-            value=access_token,
-            max_age=settings.AUTH_COOKIE_ACCESS_MAX_AGE,
-            httponly=settings.AUTH_COOKIE_HTTP_ONLY,
-            secure=settings.AUTH_COOKIE_SECURE,
-            samesite=settings.AUTH_COOKIE_SAMESITE,
-            path=settings.AUTH_COOKIE_PATH,
-        )
-
-    if refresh_token:
-        response.set_cookie(
-            key=settings.AUTH_COOKIE_REFRESH,
-            value=refresh_token,
-            max_age=settings.AUTH_COOKIE_REFRESH_MAX_AGE,
-            httponly=settings.AUTH_COOKIE_HTTP_ONLY,
-            secure=settings.AUTH_COOKIE_SECURE,
-            samesite=settings.AUTH_COOKIE_SAMESITE,
-            path=settings.AUTH_COOKIE_PATH,
-        )
-
-
-def clear_auth_cookies(response):
-    response.delete_cookie(
-        key=settings.AUTH_COOKIE_ACCESS,
-        path=settings.AUTH_COOKIE_PATH,
-        samesite=settings.AUTH_COOKIE_SAMESITE,
-    )
-    response.delete_cookie(
-        key=settings.AUTH_COOKIE_REFRESH,
-        path=settings.AUTH_COOKIE_PATH,
-        samesite=settings.AUTH_COOKIE_SAMESITE,
-    )
-
-
-class CookieTokenObtainPairView(TokenObtainPairView):
-    permission_classes = [AllowAny]
-    serializer_class = EmailTokenObtainPairSerializer
-
+class CustomeTokenObtainPairView(TokenObtainPairView):
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
 
@@ -58,77 +30,112 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             access_token = response.data.get("access")
             refresh_token = response.data.get("refresh")
 
-            new_response = Response(
-                {"detail": "Login successful"}, status=status.HTTP_200_OK
+            response.set_cookie(
+                key="access",
+                value=access_token,
+                max_age=settings.AUTH_COOKIE_ACCESS_MAX_AGE,
+                path=settings.AUTH_COOKIE_PATH,
+                secure=settings.AUTH_COOKIE_SECURE,
+                httponly=settings.AUTH_COOKIE_HTTP_ONLY,
+                samesite=settings.AUTH_COOKIE_SAMESITE,
             )
-
-            set_auth_cookies(
-                new_response,
-                access_token=access_token,
-                refresh_token=refresh_token,
+            response.set_cookie(
+                key="refresh",
+                value=refresh_token,
+                max_age=settings.AUTH_COOKIE_REFRESH_MAX_AGE,
+                path=settings.AUTH_COOKIE_PATH,
+                secure=settings.AUTH_COOKIE_SECURE,
+                httponly=settings.AUTH_COOKIE_HTTP_ONLY,
+                samesite=settings.AUTH_COOKIE_SAMESITE,
             )
-
-            get_token(request)
-            return new_response
 
         return response
 
 
-class CookieTokenRefreshView(APIView):
-    permission_classes = [AllowAny]
-
+class CustomeTokenRefreshView(TokenRefreshView):
     def post(self, request, *args, **kwargs):
-        refresh_token = request.COOKIES.get(settings.AUTH_COOKIE_REFRESH)
+        refresh_token = request.COOKIES.get("refresh")
 
-        if not refresh_token:
-            return Response(
-                {"detail": "Refresh token not found"},
-                status=status.HTTP_401_UNAUTHORIZED,
+        if refresh_token:
+            data = request.data.copy()
+            data["refresh"] = refresh_token
+            request._full_data = data
+
+        response = super().post(request, *args, **kwargs)
+
+        if response.status_code == 200:
+            access_token = response.data.get("access")
+
+            response.set_cookie(
+                key="access",
+                value=access_token,
+                max_age=settings.AUTH_COOKIE_ACCESS_MAX_AGE,
+                path=settings.AUTH_COOKIE_PATH,
+                secure=settings.AUTH_COOKIE_SECURE,
+                httponly=settings.AUTH_COOKIE_HTTP_ONLY,
+                samesite=settings.AUTH_COOKIE_SAMESITE,
             )
 
-        serializer = TokenRefreshSerializer(data={"refresh": refresh_token})
-
-        try:
-            serializer.is_valid(raise_exception=True)
-        except Exception:
-            return Response(
-                {"detail": "Invalid refresh token"}, status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        access_token = serializer.validated_data.get("access")
-
-        response = Response({"detail": "Token refreshed"}, status=status.HTTP_200_OK)
-
-        set_auth_cookies(response, access_token=access_token)
         return response
+
+
+class CustomeTokenVerifyView(TokenVerifyView):
+    def post(self, request, *args, **kwargs):
+        access_token = request.COOKIES.get("access")
+
+        if access_token:
+            data = request.data.copy()
+            data["token"] = access_token
+            request._full_data = data
+
+        return super().post(request, *args, **kwargs)
 
 
 class LogoutView(APIView):
     def post(self, request, *args, **kwargs):
-        response = Response(
-            {"detail": "Logged out successfully"}, status=status.HTTP_200_OK
-        )
-        clear_auth_cookies(response)
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        response.delete_cookie("access", path=settings.AUTH_COOKIE_PATH)
+        response.delete_cookie("refresh", path=settings.AUTH_COOKIE_PATH)
         return response
 
 
-class CSRFTokenView(APIView):
-    permission_classes = [AllowAny]
+class CurrentUserView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        csrf_token = get_token(request)
-        return Response({"csrfToken": csrf_token})
+        serializer = CustomUserSerializer(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def patch(self, request, *args, **kwargs):
+        serializer = CustomUserSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class MeView(APIView):
-    def get(self, request):
-        user = request.user
+class AdminUserListView(generics.ListAPIView):
+    serializer_class = AdminUserManageSerializer
+    permission_classes = [permissions.IsAdminUser]
 
-        return Response(
-            {
-                "id": user.id,
-                "email": user.email,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-            }
-        )
+    def get_queryset(self):
+        return User.objects.all().order_by("email")
+
+
+class AdminUserDetailView(generics.RetrieveUpdateAPIView):
+    serializer_class = AdminUserManageSerializer
+    permission_classes = [permissions.IsAdminUser]
+    queryset = User.objects.all().order_by("email")
+
+
+class AdminGroupListView(generics.ListAPIView):
+    serializer_class = AdminGroupManageSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_queryset(self):
+        return Group.objects.select_related("created_by").prefetch_related("memberships").order_by("name")
+
+
+class AdminGroupDetailView(generics.RetrieveUpdateAPIView):
+    serializer_class = AdminGroupManageSerializer
+    permission_classes = [permissions.IsAdminUser]
+    queryset = Group.objects.select_related("created_by").prefetch_related("memberships").order_by("name")

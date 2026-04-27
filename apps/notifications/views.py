@@ -10,6 +10,8 @@ from .serializers import NotificationSerializer, EmptySerializer
 class NotificationListView(generics.ListAPIView):
     serializer_class = NotificationSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def get_queryset(self):
         return Notification.objects.filter(user=self.request.user)
@@ -18,6 +20,8 @@ class NotificationListView(generics.ListAPIView):
 class MarkNotificationAsReadView(generics.GenericAPIView):
     serializer_class = EmptySerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def patch(self, request, notification_uuid):
         notification = get_object_or_404(

@@ -53,6 +53,8 @@ class GroupListCreateView(generics.ListCreateAPIView):
 class AddGroupMemberView(generics.GenericAPIView):
     serializer_class = AddGroupMemberSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def post(self, request, group_uuid):
         group = get_group_or_404(group_uuid)
@@ -71,11 +73,13 @@ class AddGroupMemberView(generics.GenericAPIView):
 class GroupMemberListView(generics.ListAPIView):
     serializer_class = GroupMembershipSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def get_queryset(self):
         group = get_group_or_404(self.kwargs["uuid"])
 
-        is_group_host(self.request.user, group)
+       # is_group_host(self.request.user, group)
 
         return (
             GroupMembership.objects.filter(group=group)
@@ -107,6 +111,8 @@ class GroupDetailView(generics.RetrieveAPIView):
 class VerifyGroupMemberView(generics.GenericAPIView):
     serializer_class = VerifyGroupMemberSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def patch(self, request, group_uuid, membership_uuid):
         group = get_group_or_404(group_uuid)
@@ -134,6 +140,8 @@ class VerifyGroupMemberView(generics.GenericAPIView):
 class ToggleGroupMemberActiveView(generics.GenericAPIView):
     serializer_class = EmptySerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def patch(self, request, group_uuid, membership_uuid):
         group = get_group_or_404(group_uuid)
@@ -173,6 +181,8 @@ class ToggleGroupMemberActiveView(generics.GenericAPIView):
 class SendGroupInvitationView(generics.GenericAPIView):
     serializer_class = SendGroupInvitationSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def post(self, request, group_uuid):
         group = get_group_or_404(group_uuid)
@@ -199,6 +209,8 @@ class SendGroupInvitationView(generics.GenericAPIView):
 class GroupInvitationListView(generics.ListAPIView):
     serializer_class = GroupInvitationSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def get_queryset(self):
         group = get_group_or_404(self.kwargs["group_uuid"])
@@ -214,6 +226,8 @@ class GroupInvitationListView(generics.ListAPIView):
 class MyGroupInvitationListView(generics.ListAPIView):
     serializer_class = GroupInvitationSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def get_queryset(self):
         return (
@@ -229,6 +243,8 @@ class MyGroupInvitationListView(generics.ListAPIView):
 class RespondGroupInvitationView(generics.GenericAPIView):
     serializer_class = RespondGroupInvitationSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def post(self, request, invitation_uuid):
         invitation = get_object_or_404(
@@ -285,6 +301,8 @@ class RespondGroupInvitationView(generics.GenericAPIView):
 class CancelGroupInvitationView(generics.GenericAPIView):
     serializer_class = EmptySerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def patch(self, request, group_uuid, invitation_uuid):
         group = get_group_or_404(group_uuid)

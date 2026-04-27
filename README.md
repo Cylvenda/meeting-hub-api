@@ -80,8 +80,16 @@ python manage.py createsuperuser
 5. Run the development server.
 
 ```bash
-python manage.py runserver
+python manage.py runserver 0.0.0.0:8000
 ```
+
+For LAN testing, find your machine IP with:
+
+```bash
+ip a
+```
+
+Then open `http://<your-local-ip>:8000` from another device on the same network.
 
 ## Environment Notes
 
@@ -96,8 +104,24 @@ Relevant settings include:
 - `EMAIL_HOST_USER`
 - `EMAIL_HOST_PASSWORD`
 - `DEFAULT_FROM_EMAIL`
+- `LIVEKIT_URL`
+- `LIVEKIT_API_KEY`
+- `LIVEKIT_API_SECRET`
+- `LIVEKIT_TOKEN_TTL_MINUTES`
+- `ALLOWED_HOSTS`
+- `DEV_ALLOW_ALL_HOSTS`
+- `CORS_ALLOWED_ORIGINS`
+- `CSRF_TRUSTED_ORIGINS`
 
 If these are not configured, Djoser activation emails will not work end-to-end.
+If the LiveKit variables are not configured, meeting join requests will return a
+service-unavailable response instead of a connection token.
+
+For development on a shared Wi-Fi or LAN:
+
+- `DEV_ALLOW_ALL_HOSTS=True` lets Django accept requests from changing local IPs.
+- If your frontend talks to Django directly from another origin, add that origin to
+  `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS`.
 
 ## Authentication
 
@@ -120,6 +144,7 @@ Mounted under:
 
 - `/api/me/auth/login/`
 - `/api/me/auth/refresh/`
+- `/api/me/auth/verify/`
 - `/api/me/auth/logout/`
 - `/api/me/auth/csrf/`
 - `/api/me/auth/me/`
@@ -128,6 +153,12 @@ The project uses a custom cookie JWT flow in the `accounts` app, with cookies na
 
 - `access`
 - `refresh`
+
+Notes:
+
+- `/api/me/auth/refresh/` is the primary refresh endpoint
+- `/api/me/auth/csrf/` is still available as a backward-compatible alias
+- `/api/me/auth/verify/` verifies the current access token
 
 ## API Surface
 
@@ -170,6 +201,7 @@ Router-backed endpoints include standard CRUD operations plus custom meeting act
 - `POST /api/meetings/<id>/end/`
 - `POST /api/meetings/<id>/join/`
 - `POST /api/meetings/<id>/leave/`
+- `GET /api/meetings/<id>/participants/`
 - `GET /api/meetings/<id>/attendance/`
 - `GET /api/meetings/<id>/minutes/`
 - `POST /api/meetings/<id>/minutes/`
@@ -218,6 +250,7 @@ Before production use, review at minimum:
 - auth cookie security flags
 - CSRF trusted origins
 - database configuration
+- frontend domain and CORS environment variables
 - email backend configuration
 
 ## License

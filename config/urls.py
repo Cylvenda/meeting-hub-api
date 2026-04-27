@@ -19,4 +19,6 @@ urlpatterns = [
     path("api/", include("apps.accounts.urls")),
     # meeting endpoints
     path("api/", include("apps.meetings.urls")),
+    # realtime webhooks
+    path("api/realtime/", include("apps.realtime.urls")),
 ]

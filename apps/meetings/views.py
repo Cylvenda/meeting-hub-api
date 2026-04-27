@@ -1,5 +1,6 @@
 from django.db.models import Q
 from django.utils import timezone
+from django.conf import settings
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -12,19 +13,26 @@ from .serializers import (
     AgendaItemSerializer,
     AttendanceSerializer,
     MeetingMinutesSerializer,
+    ParticipantSessionSerializer,
 )
 from .permissions import IsHostOrVerifiedMemberReadOnly
 from .services import (
-    join_meeting,
-    leave_meeting,
     finalize_meeting_attendance,
     log_meeting_action,
+)
+from apps.realtime.services import (
+    LiveKitConfigurationError,
+    LiveKitUnavailableError,
+    generate_livekit_access_token,
+    user_can_join_live_meeting,
 )
 
 
 class MeetingViewSet(viewsets.ModelViewSet):
     serializer_class = MeetingSerializer
     permission_classes = [IsAuthenticated, IsHostOrVerifiedMemberReadOnly]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
 
     def get_queryset(self):
         user = self.request.user
@@ -47,7 +55,7 @@ class MeetingViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=["post"])
-    def start(self, request, pk=None):
+    def start(self, request, uuid=None):
         meeting = self.get_object()
 
         if meeting.host != request.user:
@@ -76,7 +84,7 @@ class MeetingViewSet(viewsets.ModelViewSet):
         return Response({"detail": "Meeting started successfully."})
 
     @action(detail=True, methods=["post"])
-    def end(self, request, pk=None):
+    def end(self, request, uuid=None):
         meeting = self.get_object()
 
         if meeting.host != request.user:
@@ -107,7 +115,7 @@ class MeetingViewSet(viewsets.ModelViewSet):
         return Response({"detail": "Meeting ended successfully."})
 
     @action(detail=True, methods=["post"])
-    def join(self, request, pk=None):
+    def join(self, request, uuid=None):
         meeting = self.get_object()
 
         if meeting.status != "ongoing":
@@ -116,42 +124,56 @@ class MeetingViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        membership_exists = meeting.group.memberships.filter(
-            user=request.user, is_verified=True, is_active=True
-        ).exists()
-
-        if not membership_exists:
+        if not user_can_join_live_meeting(meeting=meeting, user=request.user):
             return Response(
                 {"detail": "You are not an authorized verified member of this group."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        join_meeting(meeting, request.user, is_verified_member=True)
-
-        return Response({"detail": "Joined meeting successfully."})
-
-    @action(detail=True, methods=["post"])
-    def leave(self, request, pk=None):
-        meeting = self.get_object()
-
-        session = leave_meeting(meeting, request.user)
-        if not session:
+        try:
+            token = generate_livekit_access_token(user=request.user, meeting=meeting)
+        except (LiveKitConfigurationError, LiveKitUnavailableError) as exc:
             return Response(
-                {"detail": "No active meeting session found for this user."},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"detail": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        return Response({"detail": "Left meeting successfully."})
+        response_data = {
+            "token": token,
+            "room": str(meeting.uuid),
+        }
+        if settings.LIVEKIT_URL:
+            response_data["url"] = settings.LIVEKIT_URL
+
+        return Response(response_data)
+
+    @action(detail=True, methods=["post"])
+    def leave(self, request, uuid=None):
+        self.get_object()
+        return Response(
+            {
+                "detail": "Disconnect from LiveKit to leave. Attendance will be updated by the realtime webhook."
+            }
+        )
 
     @action(detail=True, methods=["get"])
-    def attendance(self, request, pk=None):
+    def participants(self, request, uuid=None):
+        meeting = self.get_object()
+        sessions = meeting.participant_sessions.filter(left_at__isnull=True).select_related(
+            "user"
+        )
+        serializer = ParticipantSessionSerializer(sessions, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["get"])
+    def attendance(self, request, uuid=None):
         meeting = self.get_object()
         attendance_qs = meeting.attendance_records.select_related("user")
         serializer = AttendanceSerializer(attendance_qs, many=True)
         return Response(serializer.data)
 
     @action(detail=True, methods=["get", "post", "patch"])
-    def minutes(self, request, pk=None):
+    def minutes(self, request, uuid=None):
         meeting = self.get_object()
 
         if request.method == "GET":
@@ -215,6 +237,9 @@ class AgendaItemViewSet(viewsets.ModelViewSet):
     queryset = AgendaItem.objects.all()
     serializer_class = AgendaItemSerializer
     permission_classes = [IsAuthenticated]
+    lookup_field = "uuid"
+    lookup_url_kwarg = "uuid"
+    
 
     def get_queryset(self):
         user = self.request.user
@@ -235,7 +260,7 @@ class AgendaItemViewSet(viewsets.ModelViewSet):
             )
 
         try:
-            meeting = Meeting.objects.get(id=meeting_id)
+            meeting = Meeting.objects.get(uuid=meeting_id)
         except Meeting.DoesNotExist:
             return Response(
                 {"detail": "Meeting not found."}, status=status.HTTP_404_NOT_FOUND
@@ -249,6 +274,39 @@ class AgendaItemViewSet(viewsets.ModelViewSet):
 
         return super().create(request, *args, **kwargs)
 
+    def update(self, request, *args, **kwargs):
+        agenda_item = self.get_object()
+
+        if agenda_item.meeting.host != request.user:
+            return Response(
+                {"detail": "Only the host can update agenda items."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        agenda_item = self.get_object()
+
+        if agenda_item.meeting.host != request.user:
+            return Response(
+                {"detail": "Only the host can update agenda items."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        agenda_item = self.get_object()
+
+        if agenda_item.meeting.host != request.user:
+            return Response(
+                {"detail": "Only the host can delete agenda items."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return super().destroy(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         agenda_item = serializer.save()
 
@@ -256,7 +314,7 @@ class AgendaItemViewSet(viewsets.ModelViewSet):
             meeting=agenda_item.meeting,
             action="agenda_item_created",
             user=self.request.user,
-            metadata={"agenda_item_id": agenda_item.id, "title": agenda_item.title},
+            metadata={"agenda_item_id": str(agenda_item.uuid), "title": agenda_item.title},
         )
 
     def perform_update(self, serializer):
@@ -266,12 +324,12 @@ class AgendaItemViewSet(viewsets.ModelViewSet):
             meeting=agenda_item.meeting,
             action="agenda_item_updated",
             user=self.request.user,
-            metadata={"agenda_item_id": agenda_item.id, "title": agenda_item.title},
+            metadata={"agenda_item_id": str(agenda_item.uuid), "title": agenda_item.title},
         )
 
     def perform_destroy(self, instance):
         meeting = instance.meeting
-        agenda_item_id = instance.id
+        agenda_item_id = str(instance.uuid)
         title = instance.title
         instance.delete()
 

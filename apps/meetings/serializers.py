@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from apps.groups.models import Group
 from .models import (
     Meeting,
     AgendaItem,
@@ -9,6 +10,12 @@ from .models import (
 
 
 class AgendaItemSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="uuid", read_only=True)
+    meeting = serializers.SlugRelatedField(
+        slug_field="uuid",
+        queryset=Meeting.objects.all(),
+    )
+
     class Meta:
         model = AgendaItem
         fields = [
@@ -24,16 +31,22 @@ class AgendaItemSerializer(serializers.ModelSerializer):
 
 
 class ParticipantSessionSerializer(serializers.ModelSerializer):
+    user = serializers.UUIDField(source="user.uuid", read_only=True)
+    meeting = serializers.UUIDField(source="meeting.uuid", read_only=True)
     user_email = serializers.EmailField(source="user.email", read_only=True)
+    id = serializers.UUIDField(source="uuid", read_only=True)
 
     class Meta:
         model = ParticipantSession
-        fields = ["id", "user", "user_email", "joined_at", "left_at"]
-        read_only_fields = ["id", "joined_at", "left_at", "user_email"]
+        fields = ["id", "meeting", "user", "user_email", "joined_at", "left_at"]
+        read_only_fields = ["id", "meeting", "user", "joined_at", "left_at", "user_email"]
 
 
 class AttendanceSerializer(serializers.ModelSerializer):
+    meeting = serializers.UUIDField(source="meeting.uuid", read_only=True)
+    user = serializers.UUIDField(source="user.uuid", read_only=True)
     user_email = serializers.EmailField(source="user.email", read_only=True)
+    id = serializers.UUIDField(source="uuid", read_only=True)
 
     class Meta:
         model = Attendance
@@ -60,6 +73,11 @@ class AttendanceSerializer(serializers.ModelSerializer):
 
 
 class MeetingMinutesSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="uuid", read_only=True)
+    meeting = serializers.UUIDField(source="meeting.uuid", read_only=True)
+    prepared_by = serializers.UUIDField(
+        source="prepared_by.uuid", read_only=True, allow_null=True
+    )
     prepared_by_email = serializers.EmailField(
         source="prepared_by.email", read_only=True
     )
@@ -78,6 +96,7 @@ class MeetingMinutesSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "meeting",
             "prepared_by",
             "prepared_by_email",
             "created_at",
@@ -86,6 +105,12 @@ class MeetingMinutesSerializer(serializers.ModelSerializer):
 
 
 class MeetingSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="uuid", read_only=True)
+    group = serializers.SlugRelatedField(
+        slug_field="uuid",
+        queryset=Group.objects.all(),
+    )
+    host = serializers.UUIDField(source="host.uuid", read_only=True)
     host_email = serializers.EmailField(source="host.email", read_only=True)
     agenda_items = AgendaItemSerializer(many=True, read_only=True)
     minutes = MeetingMinutesSerializer(read_only=True)
@@ -111,7 +136,6 @@ class MeetingSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = [
-            "id",
             "host",
             "host_email",
             "actual_start",
