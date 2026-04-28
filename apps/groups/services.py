@@ -1,7 +1,8 @@
 import logging
 from django.contrib.auth import get_user_model
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
+from django.template.loader import render_to_string
 
 from apps.notifications.services import create_notification
 from apps.notifications.models import Notification
@@ -10,36 +11,56 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
-def send_group_invitation_email(invitation):
-    subject = f"You have been invited to join {invitation.group.name}"
-    message = (
-        f"You have been invited to join the group '{invitation.group.name}'.\n\n"
-        f"Please log in to your account to accept or decline the invitation."
-    )
+def send_templated_email(*, subject, to, text_template, html_template, context):
+    text_body = render_to_string(text_template, context)
+    html_body = render_to_string(html_template, context)
 
-    send_mail(
+    email = EmailMultiAlternatives(
         subject=subject,
-        message=message,
+        body=text_body,
         from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[invitation.email],
-        fail_silently=False,
+        to=to,
+    )
+    email.attach_alternative(html_body, "text/html")
+    email.send(fail_silently=False)
+
+
+def send_group_invitation_email(invitation):
+    inviter_name = invitation.invited_by.full_name.strip() or invitation.invited_by.email
+    subject = f"You have been invited to join {invitation.group.name}"
+    login_url = f"{getattr(settings, 'FRONTEND_URL', '').rstrip('/')}/login"
+    context = {
+        "site_name": "Meeting Hub",
+        "group_name": invitation.group.name,
+        "inviter_name": inviter_name,
+        "recipient_email": invitation.email,
+        "message": invitation.message,
+        "login_url": login_url,
+    }
+    send_templated_email(
+        subject=subject,
+        to=[invitation.email],
+        text_template="email/group_invitation.txt",
+        html_template="email/group_invitation.html",
+        context=context,
     )
 
 
 def send_membership_verified_email(user, group):
     subject = f"Your membership in {group.name} has been verified"
-    message = (
-        f"Hello,\n\n"
-        f"Your membership in '{group.name}' has been verified.\n"
-        f"You can now participate as a verified member."
-    )
-
-    send_mail(
+    login_url = f"{getattr(settings, 'FRONTEND_URL', '').rstrip('/')}/login"
+    context = {
+        "site_name": "Meeting Hub",
+        "group_name": group.name,
+        "recipient_email": user.email,
+        "login_url": login_url,
+    }
+    send_templated_email(
         subject=subject,
-        message=message,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
-        fail_silently=False,
+        to=[user.email],
+        text_template="email/membership_verified.txt",
+        html_template="email/membership_verified.html",
+        context=context,
     )
 
 
@@ -56,7 +77,10 @@ def notify_invitation_sent(invitation):
         create_notification(
             user=existing_user,
             title="New Group Invitation",
-            message=f"You have been invited to join '{invitation.group.name}'.",
+            message=(
+                f"{invitation.invited_by.full_name.strip() or invitation.invited_by.email} "
+                f"invited you to join '{invitation.group.name}'. Open the invitation to accept or decline."
+            ),
             notification_type=Notification.NotificationType.GROUP_INVITATION,
             group_uuid=invitation.group.uuid,
             invitation_uuid=invitation.uuid,
@@ -68,7 +92,9 @@ def notify_invitation_accepted(invitation):
         create_notification(
             user=invitation.invited_by,
             title="Invitation Accepted",
-            message=f"{invitation.email} accepted the invitation to join '{invitation.group.name}'.",
+            message=(
+                f"{invitation.email} accepted your invitation and is now part of '{invitation.group.name}'."
+            ),
             notification_type=Notification.NotificationType.INVITATION_ACCEPTED,
             group_uuid=invitation.group.uuid,
             invitation_uuid=invitation.uuid,
@@ -85,7 +111,9 @@ def notify_invitation_declined(invitation):
         create_notification(
             user=invitation.invited_by,
             title="Invitation Declined",
-            message=f"{invitation.email} declined the invitation to join '{invitation.group.name}'.",
+            message=(
+                f"{invitation.email} declined your invitation to join '{invitation.group.name}'."
+            ),
             notification_type=Notification.NotificationType.GENERAL,
             group_uuid=invitation.group.uuid,
             invitation_uuid=invitation.uuid,

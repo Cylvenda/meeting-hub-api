@@ -23,6 +23,7 @@ from .services import (
     notify_invitation_sent,
     notify_invitation_accepted,
     notify_invitation_declined,
+    send_membership_verified_email,
 )
 
 User = get_user_model()
@@ -129,6 +130,8 @@ class VerifyGroupMemberView(generics.GenericAPIView):
 
         membership.is_verified = True
         membership.save(update_fields=["is_verified"])
+
+        send_membership_verified_email(membership.user, group)
 
         return Response(
             GroupMembershipSerializer(membership).data,
@@ -282,9 +285,23 @@ class RespondGroupInvitationView(generics.GenericAPIView):
             defaults={
                 "role": GroupMembership.Role.MEMBER,
                 "is_active": True,
-                "is_verified": False,
+                "is_verified": True,
             },
         )
+
+        if not created:
+            membership_updates = []
+
+            if not membership.is_active:
+                membership.is_active = True
+                membership_updates.append("is_active")
+
+            if not membership.is_verified:
+                membership.is_verified = True
+                membership_updates.append("is_verified")
+
+            if membership_updates:
+                membership.save(update_fields=membership_updates)
 
         notify_invitation_accepted(invitation)
 

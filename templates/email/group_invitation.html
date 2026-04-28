@@ -1,37 +1,16 @@
-{% block subject %}
-Activate your Meeting Hub account
-{% endblock subject %}
-
-{% block text_body %}
-Hello,
-
-Welcome to {{ site_name|default:"Meeting Hub" }}.
-To start using your account, please confirm your email address using the link below:
-
-{{ protocol }}://{{ domain }}/{{ url|safe }}
-
-This activation link will expire for security reasons.
-
-If you did not create this account, you can safely ignore this email.
-
-Regards,
-Meeting Hub Team
-{% endblock text_body %}
-
-{% block html_body %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Activate Your Account</title>
+    <title>Group Invitation</title>
     <style>
         body {
             margin: 0;
             padding: 0;
-            background-color: #f7f3ec;
+            background-color: #f4f6f9;
             font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-            color: #2a211c;
+            color: #333333;
         }
 
         .container {
@@ -40,7 +19,7 @@ Meeting Hub Team
             background: #ffffff;
             border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
         }
 
         .header {
@@ -58,7 +37,7 @@ Meeting Hub Team
 
         .header p {
             margin: 8px 0 0;
-            color: rgba(255, 255, 255, 0.86);
+            opacity: 0.9;
         }
 
         .content {
@@ -73,6 +52,22 @@ Meeting Hub Team
         .content p {
             line-height: 1.6;
             margin: 14px 0;
+        }
+
+        .meta-box {
+            background: #fff7ed;
+            border: 1px solid #fed7aa;
+            border-radius: 10px;
+            padding: 16px;
+            margin: 22px 0;
+        }
+
+        .note-box {
+            background: #f8fafc;
+            border-left: 4px solid #c2410c;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 22px 0;
         }
 
         .button-wrap {
@@ -91,8 +86,7 @@ Meeting Hub Team
         }
 
         .link-box {
-            background: #fff7ed;
-            border: 1px solid #fed7aa;
+            background: #f1f5f9;
             padding: 12px;
             border-radius: 8px;
             font-size: 13px;
@@ -102,8 +96,8 @@ Meeting Hub Team
         .footer {
             padding: 20px 32px 28px;
             font-size: 13px;
-            color: #7c6a5f;
-            border-top: 1px solid #f1e6da;
+            color: #777777;
+            border-top: 1px solid #eeeeee;
         }
 
         @media (max-width: 600px) {
@@ -119,47 +113,53 @@ Meeting Hub Team
 <body>
     <div class="container">
         <div class="header">
-            <h1>Meeting Hub</h1>
+            <h1>{{ site_name }}</h1>
             <p>Secure Virtual Meeting Platform</p>
         </div>
 
         <div class="content">
-            <h2>Activate Your Account</h2>
+            <h2>You are invited to join {{ group_name }}</h2>
 
             <p>Hello,</p>
-
             <p>
-                Welcome to <strong>{{ site_name|default:"Meeting Hub" }}</strong>.
-                To start using your account, please confirm your email address.
+                <strong>{{ inviter_name }}</strong> invited you to join the group
+                <strong>{{ group_name }}</strong> on {{ site_name }}.
             </p>
 
+            <div class="meta-box">
+                <p style="margin: 0 0 8px;"><strong>Group:</strong> {{ group_name }}</p>
+                <p style="margin: 0 0 8px;"><strong>Invited by:</strong> {{ inviter_name }}</p>
+                <p style="margin: 0;"><strong>Account:</strong> {{ recipient_email }}</p>
+            </div>
+
+            {% if message %}
+            <div class="note-box">
+                <p style="margin-top: 0;"><strong>Personal note</strong></p>
+                <p style="margin-bottom: 0;">{{ message|linebreaksbr }}</p>
+            </div>
+            {% endif %}
+
+            <p>Sign in to your account to review this invitation and choose whether to accept or decline it.</p>
+
             <div class="button-wrap">
-                <a href="{{ protocol }}://{{ domain }}/{{ url|safe }}" class="button">
-                    Activate Account
-                </a>
+                <a href="{{ login_url }}" class="button">Open Invitation</a>
             </div>
 
             <p>If the button above does not work, copy and paste this link into your browser:</p>
+            <div class="link-box">{{ login_url }}</div>
 
-            <div class="link-box">
-                {{ protocol }}://{{ domain }}/{{ url|safe }}
-            </div>
-
-            <p>This activation link will expire for security reasons.</p>
-
-            <p>If you did not create this account, you can safely ignore this email.</p>
+            <p>If you were not expecting this invitation, you can safely ignore this email.</p>
 
             <p>
                 Regards,<br>
-                <strong>Meeting Hub Team</strong>
+                <strong>{{ site_name }} Team</strong>
             </p>
         </div>
 
         <div class="footer">
-            &copy; {{ site_name|default:"Meeting Hub" }}<br>
+            &copy; {{ site_name }}<br>
             Organized • Private • Reliable
         </div>
     </div>
 </body>
 </html>
-{% endblock html_body %}

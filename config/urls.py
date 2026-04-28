@@ -3,16 +3,6 @@ from django.urls import path, include, re_path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
-<<<<<<< HEAD
-    path('admin/', admin.site.urls),
-    re_path(r'^api/auth/', include('djoser.urls')),
-    re_path(r'^api/auth/', include('djoser.urls.jwt')),
-    
-    # API DOCS
-    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
-    path("", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
-]
-=======
     # admin panel endpoint
     path("admin/", admin.site.urls),
     # djoser endpoints
@@ -32,4 +22,3 @@ urlpatterns = [
     # realtime webhooks
     path("api/realtime/", include("apps.realtime.urls")),
 ]
->>>>>>> groups

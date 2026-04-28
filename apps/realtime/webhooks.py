@@ -3,10 +3,16 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from apps.meetings.models import Meeting
-from apps.meetings.services import join_meeting, leave_meeting
+from apps.meetings.services import join_meeting, leave_meeting, finalize_meeting_attendance
 from apps.notifications.services import create_notification
 from apps.notifications.models import Notification
-from .services import resolve_live_meeting_user
+from .services import (
+    LiveKitConfigurationError,
+    LiveKitUnavailableError,
+    LiveKitWebhookVerificationError,
+    resolve_live_meeting_user,
+    validate_livekit_webhook,
+)
 
 
 @csrf_exempt
@@ -18,8 +24,20 @@ def livekit_webhook(request):
     if request.method != "POST":
         return JsonResponse({"error": "Invalid method"}, status=405)
 
+    body = request.body.decode("utf-8")
+
     try:
-        payload = json.loads(request.body.decode("utf-8"))
+        validate_livekit_webhook(
+            body=body,
+            auth_header=request.headers.get("Authorization"),
+        )
+    except LiveKitWebhookVerificationError as exc:
+        return JsonResponse({"error": str(exc)}, status=401)
+    except (LiveKitConfigurationError, LiveKitUnavailableError) as exc:
+        return JsonResponse({"error": str(exc)}, status=503)
+
+    try:
+        payload = json.loads(body)
     except Exception:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
@@ -35,7 +53,10 @@ def livekit_webhook(request):
     except Meeting.DoesNotExist:
         return JsonResponse({"error": "Meeting not found"}, status=404)
 
-    if meeting.status != "ongoing":
+    if event_type == "participant_joined" and meeting.status != "ongoing":
+        return JsonResponse({"status": "ignored"})
+
+    if event_type == "participant_left" and meeting.status not in {"ongoing", "ended"}:
         return JsonResponse({"status": "ignored"})
 
     user = resolve_live_meeting_user(
@@ -63,7 +84,13 @@ def livekit_webhook(request):
         return JsonResponse({"status": "joined"})
 
     if event_type == "participant_left":
-        leave_meeting(meeting, user)
+        session = leave_meeting(meeting, user)
+
+        if session is None:
+            return JsonResponse({"status": "ignored"})
+
+        if meeting.status == "ended":
+            finalize_meeting_attendance(meeting)
 
         create_notification(
             user=user,

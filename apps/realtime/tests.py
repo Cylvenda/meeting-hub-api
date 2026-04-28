@@ -66,6 +66,14 @@ class RealtimeFlowTests(APITestCase):
             status="ongoing",
             actual_start=timezone.now(),
         )
+        self.webhook_patcher = patch(
+            "apps.realtime.webhooks.validate_livekit_webhook",
+            return_value=None,
+        )
+        self.webhook_patcher.start()
+
+    def tearDown(self):
+        self.webhook_patcher.stop()
 
     def test_verified_member_can_request_livekit_token_from_realtime_endpoint(self):
         self.client.force_authenticate(user=self.member)
@@ -189,3 +197,49 @@ class RealtimeFlowTests(APITestCase):
                 user=self.member,
             ).exists()
         )
+
+    def test_webhook_rejects_invalid_signature(self):
+        self.webhook_patcher.stop()
+
+        response = self.client.post(
+            reverse("realtime-livekit-webhook"),
+            data={
+                "event": "participant_joined",
+                "room": {"name": str(self.meeting.uuid)},
+                "participant": {"identity": str(self.member.uuid)},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        self.webhook_patcher.start()
+
+    def test_finalize_closes_open_sessions_at_meeting_end(self):
+        ParticipantSession.objects.create(
+            meeting=self.meeting,
+            user=self.member,
+        )
+        Attendance.objects.create(
+            meeting=self.meeting,
+            user=self.member,
+            first_joined_at=timezone.now() - timedelta(minutes=10),
+            total_duration_minutes=0,
+            status="present",
+            is_verified_member=True,
+        )
+
+        self.meeting.actual_start = timezone.now() - timedelta(minutes=30)
+        self.meeting.actual_end = timezone.now()
+        self.meeting.status = "ended"
+        self.meeting.save(update_fields=["actual_start", "actual_end", "status"])
+
+        from apps.meetings.services import finalize_meeting_attendance
+
+        finalize_meeting_attendance(self.meeting)
+
+        session = ParticipantSession.objects.get(meeting=self.meeting, user=self.member)
+        attendance = Attendance.objects.get(meeting=self.meeting, user=self.member)
+
+        self.assertIsNotNone(session.left_at)
+        self.assertIsNotNone(attendance.last_left_at)

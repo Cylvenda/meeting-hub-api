@@ -30,6 +30,12 @@ class MeetingLifecycleTests(APITestCase):
             password="StrongPassword123!",
             first_name="Member",
         )
+        self.absent_member = User.objects.create_user(
+            email="absent@example.com",
+            phone="+255700000023",
+            password="StrongPassword123!",
+            first_name="Absent",
+        )
         self.group = Group.objects.create(
             name="Engineering",
             description="Build team",
@@ -44,6 +50,13 @@ class MeetingLifecycleTests(APITestCase):
         )
         GroupMembership.objects.create(
             user=self.member,
+            group=self.group,
+            role=GroupMembership.Role.MEMBER,
+            is_active=True,
+            is_verified=True,
+        )
+        GroupMembership.objects.create(
+            user=self.absent_member,
             group=self.group,
             role=GroupMembership.Role.MEMBER,
             is_active=True,
@@ -174,3 +187,95 @@ class MeetingLifecycleTests(APITestCase):
 
         self.assertEqual(update_response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_ending_meeting_marks_missing_verified_members_absent(self):
+        self.meeting.status = "ongoing"
+        self.meeting.actual_start = timezone.now() - timedelta(minutes=60)
+        self.meeting.save(update_fields=["status", "actual_start"])
+
+        Attendance.objects.create(
+            meeting=self.meeting,
+            user=self.member,
+            first_joined_at=timezone.now() - timedelta(minutes=50),
+            last_left_at=timezone.now(),
+            total_duration_minutes=50,
+            status="present",
+            is_verified_member=True,
+        )
+
+        self.client.force_authenticate(user=self.host)
+        response = self.client.post(
+            reverse("meetings-end", kwargs={"uuid": self.meeting.uuid})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        absent_attendance = Attendance.objects.get(
+            meeting=self.meeting,
+            user=self.absent_member,
+        )
+        self.assertEqual(absent_attendance.status, "absent")
+        self.assertTrue(absent_attendance.is_verified_member)
+
+    @patch("apps.meetings.views.send_meeting_scheduled_email")
+    def test_scheduled_meeting_creation_sends_email(self, mocked_send_email):
+        self.client.force_authenticate(user=self.host)
+
+        response = self.client.post(
+            reverse("meetings-list"),
+            {
+                "title": "Board Review",
+                "description": "Quarterly board review",
+                "group": str(self.group.uuid),
+                "scheduled_start": (timezone.now() + timedelta(days=1)).isoformat(),
+                "scheduled_end": (timezone.now() + timedelta(days=1, hours=1)).isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mocked_send_email.assert_called_once()
+
+    @patch("apps.meetings.views.send_meeting_started_email")
+    def test_starting_meeting_sends_live_email(self, mocked_send_email):
+        self.client.force_authenticate(user=self.host)
+
+        response = self.client.post(
+            reverse("meetings-start", kwargs={"uuid": self.meeting.uuid})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mocked_send_email.assert_called_once_with(self.meeting)
+
+    @patch("apps.meetings.views.send_meeting_started_email")
+    def test_instant_meeting_starts_and_sends_join_email(self, mocked_send_email):
+        self.client.force_authenticate(user=self.host)
+
+        response = self.client.post(
+            reverse("meetings-instant"),
+            {
+                "title": "Emergency Sync",
+                "description": "Join immediately",
+                "group": str(self.group.uuid),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["status"], "ongoing")
+        self.assertIsNotNone(response.data["actual_start"])
+        mocked_send_email.assert_called_once()
+
+    def test_non_host_cannot_create_instant_meeting(self):
+        self.client.force_authenticate(user=self.member)
+
+        response = self.client.post(
+            reverse("meetings-instant"),
+            {
+                "title": "Unauthorized Instant Meeting",
+                "group": str(self.group.uuid),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

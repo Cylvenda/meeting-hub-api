@@ -6,6 +6,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 
 from .models import Meeting, AgendaItem, Attendance, MeetingMinutes
 from .serializers import (
@@ -16,9 +17,12 @@ from .serializers import (
     ParticipantSessionSerializer,
 )
 from .permissions import IsHostOrVerifiedMemberReadOnly
+from apps.groups.models import GroupMembership
 from .services import (
     finalize_meeting_attendance,
     log_meeting_action,
+    send_meeting_scheduled_email,
+    send_meeting_started_email,
 )
 from apps.realtime.services import (
     LiveKitConfigurationError,
@@ -46,12 +50,63 @@ class MeetingViewSet(viewsets.ModelViewSet):
             )
         ).distinct()
 
+    def assert_group_host(self, user, group):
+        is_host = group.memberships.filter(
+            user=user,
+            role=GroupMembership.Role.HOST,
+            is_active=True,
+            is_verified=True,
+        ).exists()
+        if not is_host:
+            raise ValidationError({"group": "Only the group host can create or start meetings."})
+
     def perform_create(self, serializer):
+        self.assert_group_host(self.request.user, serializer.validated_data["group"])
         meeting = serializer.save(host=self.request.user)
         log_meeting_action(
             meeting=meeting,
             action="meeting_created",
             user=self.request.user,
+        )
+        send_meeting_scheduled_email(meeting)
+
+    @action(detail=False, methods=["post"], url_path="instant")
+    def instant(self, request):
+        group_uuid = request.data.get("group")
+        title = (request.data.get("title") or "").strip() or "Instant Meeting"
+        description = (request.data.get("description") or "").strip()
+
+        if not group_uuid:
+            raise ValidationError({"group": "This field is required."})
+
+        serializer = self.get_serializer(
+            data={
+                "group": group_uuid,
+                "title": title,
+                "description": description,
+                "scheduled_start": timezone.now().isoformat(),
+                "scheduled_end": None,
+            }
+        )
+        serializer.is_valid(raise_exception=True)
+        self.assert_group_host(request.user, serializer.validated_data["group"])
+        meeting = serializer.save(
+            host=request.user,
+            status="ongoing",
+            actual_start=timezone.now(),
+        )
+
+        log_meeting_action(
+            meeting=meeting,
+            action="instant_meeting_started",
+            user=request.user,
+            metadata={"actual_start": meeting.actual_start.isoformat()},
+        )
+        send_meeting_started_email(meeting, instant=True)
+
+        return Response(
+            MeetingSerializer(meeting, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
         )
 
     @action(detail=True, methods=["post"])
@@ -80,6 +135,7 @@ class MeetingViewSet(viewsets.ModelViewSet):
             user=request.user,
             metadata={"actual_start": meeting.actual_start.isoformat()},
         )
+        send_meeting_started_email(meeting)
 
         return Response({"detail": "Meeting started successfully."})
 

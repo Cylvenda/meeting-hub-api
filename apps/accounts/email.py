@@ -8,3 +8,12 @@ class CustomActivationEmail(email.ActivationEmail):
         context = super().get_context_data()
         context["site_name"] = "Meeting Hub"
         return context
+
+
+class CustomPasswordResetEmail(email.PasswordResetEmail):
+    template_name = "email/password_reset.html"
+
+    def get_context_data(self):
+        context = super().get_context_data()
+        context["site_name"] = "Meeting Hub"
+        return context

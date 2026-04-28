@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-from django.shortcuts import render
-
-# Create your views here.
-=======
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -43,4 +38,3 @@ class MarkNotificationAsReadView(generics.GenericAPIView):
             {"detail": "Notification marked as read."},
             status=status.HTTP_200_OK,
         )
->>>>>>> groups

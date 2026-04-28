@@ -61,6 +61,7 @@ AUTH_COOKIE_SAMESITE = os.getenv(
 
 DOMAIN = os.getenv("DOMAIN", "localhost:3000")
 SITE_NAME = os.getenv("SITE_NAME", "Meeting Hub")
+FRONTEND_URL = os.getenv("FRONTEND_URL", f"http://{DOMAIN}").rstrip("/")
 LIVEKIT_URL = os.getenv("LIVEKIT_URL", "").strip()
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "").strip()
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "").strip()
@@ -83,10 +84,7 @@ INSTALLED_APPS = [
     "corsheaders",
     # local apps
     "apps.accounts",
-<<<<<<< HEAD
-=======
     "apps.groups",
->>>>>>> groups
     "apps.meetings",
     "apps.notifications",
     "apps.realtime",
@@ -248,6 +246,7 @@ DJOSER = {
     },
     "EMAIL": {
         "activation": "apps.accounts.email.CustomActivationEmail",
+        "password_reset": "apps.accounts.email.CustomPasswordResetEmail",
     },
     "EMAIL_FRONTEND_DOMAIN": "localhost:3000",
     "EMAIL_FRONTEND_PROTOCOL": "http",

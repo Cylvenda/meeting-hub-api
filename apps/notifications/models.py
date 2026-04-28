@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-from django.db import models
-
-# Create your models here.
-=======
 import uuid
 from django.db import models
 from django.conf import settings
@@ -48,4 +43,3 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.title}"
->>>>>>> groups

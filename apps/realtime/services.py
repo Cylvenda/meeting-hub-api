@@ -15,6 +15,41 @@ class LiveKitUnavailableError(LiveKitTokenError):
     pass
 
 
+class LiveKitWebhookVerificationError(LiveKitTokenError):
+    pass
+
+
+def validate_livekit_webhook(*, body, auth_header):
+    if not auth_header:
+        raise LiveKitWebhookVerificationError("Missing Authorization header.")
+
+    if not settings.LIVEKIT_API_KEY or not settings.LIVEKIT_API_SECRET:
+        raise LiveKitConfigurationError(
+            "LiveKit credentials are not configured on the server."
+        )
+
+    try:
+        from livekit.api import TokenVerifier, WebhookReceiver
+    except ImportError as exc:
+        raise LiveKitUnavailableError(
+            "LiveKit server SDK is not installed on the server."
+        ) from exc
+
+    try:
+        try:
+            receiver = WebhookReceiver(
+                TokenVerifier(settings.LIVEKIT_API_KEY, settings.LIVEKIT_API_SECRET)
+            )
+        except TypeError:
+            receiver = WebhookReceiver(
+                settings.LIVEKIT_API_KEY, settings.LIVEKIT_API_SECRET
+            )
+
+        receiver.receive(body, auth_header)
+    except Exception as exc:
+        raise LiveKitWebhookVerificationError("Invalid LiveKit webhook signature.") from exc
+
+
 def resolve_live_meeting_user(*, meeting, participant_identity):
     if str(meeting.host.uuid) == str(participant_identity):
         return meeting.host
