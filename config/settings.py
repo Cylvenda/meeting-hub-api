@@ -51,6 +51,10 @@ INSTALLED_APPS = [
     "corsheaders",
     # local apps
     "apps.accounts",
+<<<<<<< HEAD
+=======
+    "apps.groups",
+>>>>>>> groups
     "apps.meetings",
     "apps.notifications",
 ]
