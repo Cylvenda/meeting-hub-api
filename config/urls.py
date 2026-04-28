@@ -25,5 +25,11 @@ urlpatterns = [
     path("api/groups/", include("apps.groups.urls")),
     # groups endpoints
     path("api/notifications/", include("apps.notifications.urls")),
+    # auth cookies based
+    path("api/", include("apps.accounts.urls")),
+    # meeting endpoints
+    path("api/", include("apps.meetings.urls")),
+    # realtime webhooks
+    path("api/realtime/", include("apps.realtime.urls")),
 ]
 >>>>>>> groups

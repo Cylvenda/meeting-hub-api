@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -24,15 +25,46 @@ def env_bool(name, default=False):
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def env_list(name, default=None):
+    value = os.getenv(name)
+    if value is None:
+        return default or []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 load_env_file(BASE_DIR / ".env")
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-2y1!cgp!gtqva)7vm6g-zm-2l4nr7)+tbqfe6s=roo&5(i7al="
+SECRET_KEY = os.getenv(
+    "SECRET_KEY", "django-insecure-2y1!cgp!gtqva)7vm6g-zm-2l4nr7)+tbqfe6s=roo&5(i7al="
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env_bool("DEBUG", True)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
+DEV_ALLOW_ALL_HOSTS = env_bool("DEV_ALLOW_ALL_HOSTS", DEBUG)
+
+if DEBUG and DEV_ALLOW_ALL_HOSTS:
+    ALLOWED_HOSTS = ["*"]
+
+
+AUTH_COOKIE = "access"
+AUTH_COOKIE_ACCESS_MAX_AGE = 60 * 10  # 10 minutes
+AUTH_COOKIE_REFRESH_MAX_AGE = 60 * 60 * 24  # 24 hrs
+AUTH_COOKIE_SECURE = env_bool("AUTH_COOKIE_SECURE", not DEBUG)
+AUTH_COOKIE_HTTP_ONLY = True
+AUTH_COOKIE_PATH = "/"
+AUTH_COOKIE_SAMESITE = os.getenv(
+    "AUTH_COOKIE_SAMESITE", "None" if AUTH_COOKIE_SECURE else "Lax"
+)
+
+DOMAIN = os.getenv("DOMAIN", "localhost:3000")
+SITE_NAME = os.getenv("SITE_NAME", "Meeting Hub")
+LIVEKIT_URL = os.getenv("LIVEKIT_URL", "").strip()
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "").strip()
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "").strip()
+LIVEKIT_TOKEN_TTL_MINUTES = int(os.getenv("LIVEKIT_TOKEN_TTL_MINUTES", "60"))
 
 
 INSTALLED_APPS = [
@@ -57,11 +89,13 @@ INSTALLED_APPS = [
 >>>>>>> groups
     "apps.meetings",
     "apps.notifications",
+    "apps.realtime",
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    # 'whitenoise.moddleware.WhiteNoiseMiddleware',
+    # "whitenoise.middleware.WhiteNoiseMiddleware",  # Uncomment for production static files
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -142,46 +176,85 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# ─── Django REST Framework ────────────────────────────────────────────────────
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "apps.accounts.authentication.CustomJWTAuthentication",
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
 }
+
+# ─── Simple JWT ───────────────────────────────────────────────────────────────
 
 SIMPLE_JWT = {
-    "AUTH_HEADER_TYPES": ("JWT",),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-AUTHENTICATION_BACKENDS = [
-    "djoser.auth_backends.LoginFieldBackend",
+# ─── CORS & CSRF ────────────────────────────────────────────────────────────
+
+CORS_ALLOW_CREDENTIALS = True
+
+
+CORS_ALLOWED_ORIGINS = env_list(
+    "CORS_ALLOWED_ORIGINS",
+    [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+)
+
+CSRF_TRUSTED_ORIGINS = env_list(
+    "CSRF_TRUSTED_ORIGINS",
+    [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+)
+
+CORS_ALLOW_HEADERS = [
+    "authorization",
+    "content-type",
+    "x-csrftoken",
 ]
 
-SPECTACULAR_SETTINGS = {
-    "TITLE": "SECURE VIRTUAL PRIVATE MEETING API",
-    "DESCRIPTION": "Secure Private Meeting System API",
-    "VERSION": "1.0.0",
-}
+
+# ─── Site / Domain ────────────────────────────────────────────────────────────
+
+# ─── Authentication ───────────────────────────────────────────────────────────
 
 AUTH_USER_MODEL = "accounts.User"
+
+AUTHENTICATION_BACKENDS = [
+    "apps.accounts.backends.EmailBackend",
+]
+
+# ─── Djoser ───────────────────────────────────────────────────────────────────
 
 DJOSER = {
     "LOGIN_FIELD": "email",
     "SEND_ACTIVATION_EMAIL": True,
     "ACTIVATION_URL": "activate/{uid}/{token}",
+    "PASSWORD_RESET_CONFIRM_URL": "reset/{uid}/{token}",
     "SERIALIZERS": {
         "activation": "djoser.serializers.ActivationSerializer",
-        "user_create": "djoser.serializers.UserCreateSerializer",
-        "user_delete": "djoser.serializers.UserDeleteSerializer",
+        "user": "apps.accounts.serializers.CustomUserSerializer",
+        "current_user": "apps.accounts.serializers.CustomUserSerializer",
     },
     "EMAIL": {
         "activation": "apps.accounts.email.CustomActivationEmail",
     },
     "EMAIL_FRONTEND_DOMAIN": "localhost:3000",
     "EMAIL_FRONTEND_PROTOCOL": "http",
-    "EMAIL_FRONTEND_SITE_NAME": "Meeting Hub",
+    "EMAIL_FRONTEND_SITE_NAME": SITE_NAME,
 }
+
+# ─── Email ────────────────────────────────────────────────────────────────────
 
 EMAIL_BACKEND = os.getenv(
     "EMAIL_BACKEND",
@@ -198,3 +271,11 @@ DEFAULT_FROM_EMAIL = (
     or "webmaster@localhost"
 )
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+# ─── DRF Spectacular ─────────────────────────────────────────────────────────
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "SECURE VIRTUAL PRIVATE MEETING API",
+    "DESCRIPTION": "Secure Private Meeting System API",
+    "VERSION": "1.0.0",
+}

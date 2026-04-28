@@ -8,7 +8,7 @@ User = get_user_model()
 
 class GroupMembershipSerializer(serializers.ModelSerializer):
     user_id = serializers.UUIDField(source="user.uuid", read_only=True)
-    group_id = serializers.UUIDField(source="group.uuid", read_only=True)
+    id = serializers.UUIDField(source="group.uuid", read_only=True)
     membership_id = serializers.UUIDField(source="uuid", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
     first_name = serializers.CharField(source="user.first_name", read_only=True)
@@ -17,7 +17,7 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupMembership
         fields = [
-            "group_id",
+            "id",
             "user_id",
             "membership_id",
             "email",
@@ -31,22 +31,20 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
 
 
 class GroupSerializer(serializers.ModelSerializer):
-    group_id = serializers.UUIDField(source="uuid", read_only=True)
+    id = serializers.UUIDField(source="uuid", read_only=True)
     created_by = serializers.EmailField(source="created_by.email", read_only=True)
-    memberships = GroupMembershipSerializer(many=True, read_only=True)
     members_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Group
         fields = [
-            "group_id",
+            "id",
             "name",
             "description",
             "created_by",
             "is_active",
             "is_private",
             "members_count",
-            "memberships",
             "created_at",
             "updated_at",
         ]
@@ -56,18 +54,18 @@ class GroupSerializer(serializers.ModelSerializer):
 
 
 class GroupCreateSerializer(serializers.ModelSerializer):
-    group_id = serializers.UUIDField(source="uuid", read_only=True)
+    id = serializers.UUIDField(source="uuid", read_only=True)
 
     class Meta:
         model = Group
         fields = [
-            "group_id",
+            "id",
             "name",
             "description",
             "is_active",
             "is_private",
         ]
-        read_only_fields = ["group_id"]
+        read_only_fields = ["id"]
 
     def create(self, validated_data):
         request = self.context["request"]

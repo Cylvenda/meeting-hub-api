@@ -7,7 +7,6 @@ from .views import (
     VerifyGroupMemberView,
     ToggleGroupMemberActiveView,
     SendGroupInvitationView,
-    SendGroupInvitationView,
     GroupInvitationListView,
     MyGroupInvitationListView,
     RespondGroupInvitationView,
@@ -23,11 +22,11 @@ urlpatterns = [
         GroupMemberListView.as_view(),
         name="group-member-list",
     ),
-    path(
-        "<uuid:group_uuid>/members/add/",
-        AddGroupMemberView.as_view(),
-        name="group-add-member",
-    ),
+    # path(
+    #     "<uuid:group_uuid>/members/add/",
+    #     AddGroupMemberView.as_view(),
+    #     name="group-add-member",
+    # ),
     path(
         "<uuid:group_uuid>/members/<uuid:membership_uuid>/verify/",
         VerifyGroupMemberView.as_view(),

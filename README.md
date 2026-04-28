@@ -1,155 +1,257 @@
 # Secure Meeting API
 
-A secure backend for a virtual meeting system built with Django and Django REST Framework. The project is structured for authentication-first development, with custom user management already in place and dedicated apps for meetings and notifications ready to grow into a full private meeting platform.
+A Django and Django REST Framework backend for a Virtual Private Meeting Platform. The project currently includes custom email-based authentication, cookie-backed JWT login flows, group management, meeting workflows, and in-app notifications.
 
-## Features
+## Current Scope
 
-### Available now
+Implemented areas:
 
-- JWT authentication with email login
-- Custom user model
-- Djoser-powered authentication endpoints
+- Custom user model with email login
+- Djoser authentication endpoints
+- Cookie-based JWT login, refresh, logout, and current-user endpoints
+- Group creation, membership management, and invitation flows
+- Meeting CRUD with start, end, join, leave, attendance, and minutes endpoints
+- Notification listing and mark-as-read endpoints
 - OpenAPI schema generation with Swagger UI
 - Django admin support
 
-### In progress / planned
+Known gaps:
 
-- Meeting creation and management
-- Invitation workflows
-- Attendance tracking
-- Role-based access control
-- Activity monitoring and reporting
+- Automated tests are still placeholders
+- Email activation depends on SMTP environment configuration
+- Settings are still development-oriented
 
 ## Tech Stack
 
-- Backend: Django, Django REST Framework
-- Authentication: Djoser, SimpleJWT
-- API docs: drf-spectacular
-- Database: SQLite for development
+- Python
+- Django 6
+- Django REST Framework
+- Djoser
+- SimpleJWT
+- drf-spectacular
+- django-cors-headers
+- SQLite for local development
 
 ## Project Structure
 
 ```text
-meet-back/
+backend/
 |-- manage.py
 |-- requirements.txt
-|-- config/              # Project settings, URLs, ASGI/WSGI
+|-- README.md
+|-- config/                  # Django project settings and root routing
 |-- apps/
-|   |-- accounts/        # Custom user model and auth-related app
-|   |-- meetings/        # Meeting domain app
-|   |-- notifications/   # Notification domain app
-|-- db.sqlite3           # Local development database
-|-- static/
-|-- media/
+|   |-- accounts/            # Custom user model and authentication flows
+|   |-- groups/              # Groups, memberships, and invitations
+|   |-- meetings/            # Meetings, agenda items, attendance, minutes
+|   |-- notifications/       # User notifications
 |-- templates/
+|   |-- email/               # Activation email template(s)
+|-- venv/                    # Local virtual environment if created locally
 ```
 
 ## Installation
 
-### 1. Clone the project
-
-```bash
-git clone <your-repository-url>
-cd meet-back
-```
-
-### 2. Create and activate a virtual environment
+1. Create and activate a virtual environment.
 
 ```bash
 python -m venv venv
 source venv/bin/activate
 ```
 
-For Windows:
-
-```bash
-venv\Scripts\activate
-```
-
-### 3. Install dependencies
+2. Install dependencies.
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Apply migrations
+3. Apply migrations.
 
 ```bash
-python manage.py makemigrations
 python manage.py migrate
 ```
 
-### 5. Create a superuser
+4. Create a superuser if needed.
 
 ```bash
 python manage.py createsuperuser
 ```
 
-### 6. Run the development server
+5. Run the development server.
 
 ```bash
-python manage.py runserver
+python manage.py runserver 0.0.0.0:8000
 ```
 
-## Authentication Setup
+For LAN testing, find your machine IP with:
 
-This project uses a custom user model with:
-
-- `email` as the login field
-- `username`
-- `phone`
-- `first_name`
-- `last_name`
-
-Djoser is configured to authenticate users by email, and SimpleJWT is used for token-based auth.
-
-Current authentication-related settings include:
-
-```python
-AUTH_USER_MODEL = "accounts.User"
-
-DJOSER = {
-    "LOGIN_FIELD": "email",
-    "SEND_ACTIVATION_EMAIL": True,
-}
-
-SIMPLE_JWT = {
-    "AUTH_HEADER_TYPES": ("JWT",),
-}
+```bash
+ip a
 ```
 
-## API Endpoints
+Then open `http://<your-local-ip>:8000` from another device on the same network.
 
-### Authentication
+## Environment Notes
 
-- `POST /auth/users/` - register a user
-- `POST /auth/jwt/create/` - obtain JWT tokens
-- `POST /auth/jwt/refresh/` - refresh an access token
-- `GET /auth/users/me/` - get the current authenticated user
-- `POST /auth/users/activation/` - activate an account
+The project loads variables from a local `.env` file if present.
 
-### API documentation
+Relevant settings include:
 
-- `GET /api/schema/` - OpenAPI schema
+- `EMAIL_BACKEND`
+- `EMAIL_HOST`
+- `EMAIL_PORT`
+- `EMAIL_USE_TLS`
+- `EMAIL_HOST_USER`
+- `EMAIL_HOST_PASSWORD`
+- `DEFAULT_FROM_EMAIL`
+- `LIVEKIT_URL`
+- `LIVEKIT_API_KEY`
+- `LIVEKIT_API_SECRET`
+- `LIVEKIT_TOKEN_TTL_MINUTES`
+- `ALLOWED_HOSTS`
+- `DEV_ALLOW_ALL_HOSTS`
+- `CORS_ALLOWED_ORIGINS`
+- `CSRF_TRUSTED_ORIGINS`
+
+If these are not configured, Djoser activation emails will not work end-to-end.
+If the LiveKit variables are not configured, meeting join requests will return a
+service-unavailable response instead of a connection token.
+
+For development on a shared Wi-Fi or LAN:
+
+- `DEV_ALLOW_ALL_HOSTS=True` lets Django accept requests from changing local IPs.
+- If your frontend talks to Django directly from another origin, add that origin to
+  `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS`.
+
+## Authentication
+
+### Djoser endpoints
+
+Mounted under:
+
+- `/api/auth/`
+
+Examples include:
+
+- `POST /api/auth/users/`
+- `POST /api/auth/jwt/create/`
+- `POST /api/auth/jwt/refresh/`
+- `POST /api/auth/users/activation/`
+
+### Cookie-based auth endpoints
+
+Mounted under:
+
+- `/api/me/auth/login/`
+- `/api/me/auth/refresh/`
+- `/api/me/auth/verify/`
+- `/api/me/auth/logout/`
+- `/api/me/auth/csrf/`
+- `/api/me/auth/me/`
+
+The project uses a custom cookie JWT flow in the `accounts` app, with cookies named:
+
+- `access`
+- `refresh`
+
+Notes:
+
+- `/api/me/auth/refresh/` is the primary refresh endpoint
+- `/api/me/auth/csrf/` is still available as a backward-compatible alias
+- `/api/me/auth/verify/` verifies the current access token
+
+## API Surface
+
+### Documentation
+
 - `GET /` - Swagger UI
+- `GET /api/schema/` - OpenAPI schema
 
-## Current Notes
+### Groups
 
-- The project currently uses SQLite in development through `db.sqlite3`.
-- The `meetings` and `notifications` apps exist, but their domain models and API views are still scaffold-level at the moment.
-- Email activation is enabled in Djoser, so email backend settings will need to be configured before activation flows work end-to-end.
+Base path:
 
-## Roadmap
+- `/api/groups/`
 
-- Build meeting CRUD endpoints
-- Add invitation and participant workflows
-- Implement role-based permissions
-- Add attendance history and reporting
-- Configure PostgreSQL for production deployments
+Available routes include:
 
-## Author
+- `GET /api/groups/`
+- `POST /api/groups/`
+- `GET /api/groups/<uuid>/`
+- `GET /api/groups/<uuid>/members/`
+- `POST /api/groups/<group_uuid>/members/add/`
+- `PATCH /api/groups/<group_uuid>/members/<membership_uuid>/verify/`
+- `PATCH /api/groups/<group_uuid>/members/<membership_uuid>/activate/`
+- `POST /api/groups/<group_uuid>/invitations/send/`
+- `GET /api/groups/<group_uuid>/invitations/`
+- `GET /api/groups/invitations/my/`
+- `POST /api/groups/invitations/<invitation_uuid>/respond/`
+- `POST /api/groups/<group_uuid>/invitations/<invitation_uuid>/cancel/`
 
-Cylvenda
+### Meetings
+
+Base path:
+
+- `/api/meetings/`
+- `/api/agenda-items/`
+
+Router-backed endpoints include standard CRUD operations plus custom meeting actions:
+
+- `POST /api/meetings/<id>/start/`
+- `POST /api/meetings/<id>/end/`
+- `POST /api/meetings/<id>/join/`
+- `POST /api/meetings/<id>/leave/`
+- `GET /api/meetings/<id>/participants/`
+- `GET /api/meetings/<id>/attendance/`
+- `GET /api/meetings/<id>/minutes/`
+- `POST /api/meetings/<id>/minutes/`
+- `PATCH /api/meetings/<id>/minutes/`
+
+### Notifications
+
+Base path:
+
+- `/api/notifications/`
+
+Routes:
+
+- `GET /api/notifications/`
+- `PATCH /api/notifications/<notification_uuid>/read/`
+
+## Running Checks
+
+Basic Django project validation:
+
+```bash
+python manage.py check
+```
+
+Run tests:
+
+```bash
+python manage.py test
+```
+
+Note: test modules exist, but they are currently scaffold-level and do not provide meaningful coverage yet.
+
+## Development Status
+
+Current development assumptions:
+
+- SQLite is used locally through `db.sqlite3`
+- CSRF and auth cookie settings are configured for local development
+- Trusted frontend origins currently target local Vite defaults
+
+Before production use, review at minimum:
+
+- `SECRET_KEY`
+- `DEBUG`
+- `ALLOWED_HOSTS`
+- auth cookie security flags
+- CSRF trusted origins
+- database configuration
+- frontend domain and CORS environment variables
+- email backend configuration
 
 ## License
 
