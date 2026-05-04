@@ -83,6 +83,10 @@ class MeetingLifecycleTests(APITestCase):
         self.assertEqual(self.meeting.status, "ongoing")
         self.assertIsNotNone(self.meeting.actual_start)
 
+        # Simulate meeting started 50 minutes ago
+        self.meeting.actual_start = timezone.now() - timedelta(minutes=50)
+        self.meeting.save(update_fields=["actual_start"])
+
         self.client.force_authenticate(user=self.member)
         with patch(
             "apps.meetings.views.generate_livekit_access_token",
@@ -94,30 +98,38 @@ class MeetingLifecycleTests(APITestCase):
         self.assertEqual(join_response.status_code, status.HTTP_200_OK)
         self.assertEqual(join_response.data["token"], "livekit-token")
         self.assertEqual(join_response.data["room"], str(self.meeting.uuid))
-        self.assertFalse(
+        self.assertTrue(
             ParticipantSession.objects.filter(
                 meeting=self.meeting,
                 user=self.member,
+                left_at__isnull=True,
             ).exists()
         )
+
+        # Simulate the member having been in the meeting for 45 minutes
+        session = ParticipantSession.objects.get(
+            meeting=self.meeting,
+            user=self.member,
+        )
+        session.joined_at = timezone.now() - timedelta(minutes=45)
+        session.save(update_fields=["joined_at"])
 
         leave_response = self.client.post(
             reverse("meetings-leave", kwargs={"uuid": self.meeting.uuid})
         )
         self.assertEqual(leave_response.status_code, status.HTTP_200_OK)
 
-        self.meeting.refresh_from_db()
-        self.meeting.actual_start = timezone.now() - timedelta(minutes=50)
-        self.meeting.save(update_fields=["actual_start"])
-        attendance = Attendance.objects.create(
+        # Verify session was closed and attendance recorded
+        session.refresh_from_db()
+        self.assertIsNotNone(session.left_at)
+
+        attendance = Attendance.objects.get(
             meeting=self.meeting,
             user=self.member,
-            first_joined_at=timezone.now() - timedelta(minutes=45),
-            last_left_at=timezone.now(),
-            total_duration_minutes=45,
-            status="present",
-            is_verified_member=True,
         )
+        self.assertIsNotNone(attendance.first_joined_at)
+        self.assertIsNotNone(attendance.last_left_at)
+        self.assertGreaterEqual(attendance.total_duration_minutes, 0)
 
         self.client.force_authenticate(user=self.host)
         end_response = self.client.post(

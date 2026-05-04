@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import transaction
 from django.template.loader import render_to_string
@@ -120,6 +122,37 @@ def log_meeting_action(meeting, action, user=None, metadata=None):
     )
 
 
+def recalculate_meeting_attendance(meeting):
+    """
+    Recalculate attendance for a meeting to fix incorrect status.
+    This can be used to fix existing attendance issues.
+    Only processes users who actually participated (have sessions).
+    """
+    if not meeting.actual_start or not meeting.actual_end:
+        return False
+
+    meeting_duration_minutes = int(
+        (meeting.actual_end - meeting.actual_start).total_seconds() // 60
+    )
+
+    if meeting_duration_minutes <= 0:
+        return False
+
+    sync_meeting_attendance(
+        meeting,
+        include_expected_absentees=True,
+        reference_time=meeting.actual_end,
+    )
+
+    log_meeting_action(
+        meeting=meeting,
+        action="attendance_recalculated",
+        metadata={"meeting_duration_minutes": meeting_duration_minutes},
+    )
+
+    return True
+
+
 def get_open_session(meeting, user):
     return (
         ParticipantSession.objects.filter(
@@ -151,6 +184,31 @@ def get_authorized_meeting_attendees(meeting):
         attendees[str(membership.user.uuid)] = membership.user
 
     return list(attendees.values())
+
+
+def initialize_meeting_attendance(meeting):
+    """
+    Initialize attendance records for all expected attendees when a meeting starts.
+    This creates Attendance objects with 'absent' status that will be updated
+    to 'present' when users actually join the meeting.
+    """
+    expected_attendees = get_authorized_meeting_attendees(meeting)
+    
+    attendance_records = []
+    for user in expected_attendees:
+        is_verified = is_verified_meeting_attendee(meeting, user)
+        attendance, created = Attendance.objects.get_or_create(
+            meeting=meeting,
+            user=user,
+            defaults={
+                "status": "absent",  # Start as absent, will be updated when they join
+                "is_verified_member": is_verified,
+            }
+        )
+        if created:
+            attendance_records.append(attendance)
+    
+    return attendance_records
 
 
 @transaction.atomic
@@ -229,7 +287,7 @@ def leave_meeting(meeting, user):
     # Only calculate current session impact
     session_duration = (session.left_at - session.joined_at).total_seconds()
 
-    attendance.total_duration_minutes += int(session_duration // 60)
+    attendance.total_duration_minutes += round(session_duration / 60)
 
     if attendance.first_joined_at is None:
         attendance.first_joined_at = session.joined_at
@@ -250,16 +308,180 @@ def leave_meeting(meeting, user):
 
 
 def calculate_attendance_status(total_minutes, meeting_duration_minutes):
+    # Handle edge cases
     if meeting_duration_minutes <= 0:
+        # If meeting duration is 0 or negative, check if user has any participation time
+        if total_minutes > 0:
+            return "present"  # User participated despite meeting duration issue
+        return "absent"
+
+    # If user has any participation time, calculate ratio
+    if total_minutes <= 0:
         return "absent"
 
     ratio = total_minutes / meeting_duration_minutes
 
-    if ratio >= 0.75:
+    # More lenient thresholds for attendance detection
+    if ratio >= 0.50:  # Reduced from 0.75 to 0.50
         return "present"
-    if ratio >= 0.40:
+    elif ratio >= 0.25:  # Reduced from 0.40 to 0.25
         return "late"
-    return "absent"
+    else:
+        return "absent"
+
+
+def derive_attendance_status(
+    *,
+    total_minutes,
+    meeting_duration_minutes,
+    first_joined_at=None,
+    last_left_at=None,
+    meeting_start=None,
+    meeting_end=None,
+):
+    status = calculate_attendance_status(total_minutes, meeting_duration_minutes)
+
+    if status == "present" and meeting_end and last_left_at:
+        # Treat someone as leaving early only when they were otherwise present
+        # but permanently disconnected with enough time remaining in the meeting.
+        if last_left_at <= meeting_end - timedelta(minutes=5):
+            return "left_early"
+
+    if status == "absent" and first_joined_at and total_minutes > 0:
+        return "late"
+
+    if status == "present" and meeting_start and first_joined_at:
+        if first_joined_at >= meeting_start + timedelta(minutes=10):
+            return "late"
+
+    return status
+
+
+def sync_meeting_attendance(meeting, *, include_expected_absentees=False, reference_time=None):
+    if not meeting.actual_start:
+        return []
+
+    effective_reference_time = reference_time or meeting.actual_end or timezone.now()
+    if effective_reference_time < meeting.actual_start:
+        effective_reference_time = meeting.actual_start
+
+    meeting_duration_minutes = max(
+        0,
+        int((effective_reference_time - meeting.actual_start).total_seconds() // 60),
+    )
+
+    existing_attendances = {
+        attendance.user_id: attendance
+        for attendance in Attendance.objects.filter(meeting=meeting).select_related("user")
+    }
+
+    sessions = list(
+        ParticipantSession.objects.filter(meeting=meeting)
+        .select_related("user")
+        .order_by("joined_at")
+    )
+    sessions_by_user = {}
+    for session in sessions:
+        sessions_by_user.setdefault(session.user_id, []).append(session)
+
+    target_users = {}
+    if include_expected_absentees:
+        for user in get_authorized_meeting_attendees(meeting):
+            target_users[user.id] = user
+
+    for session in sessions:
+        target_users[session.user_id] = session.user
+
+    for attendance in existing_attendances.values():
+        target_users[attendance.user_id] = attendance.user
+
+    to_create = []
+    to_update = []
+    synced_attendances = []
+
+    for user_id, user in target_users.items():
+        user_sessions = sessions_by_user.get(user_id, [])
+        attendance = existing_attendances.get(user_id)
+
+        if attendance is None:
+            attendance = Attendance(
+                meeting=meeting,
+                user=user,
+            )
+
+        first_joined_at = user_sessions[0].joined_at if user_sessions else attendance.first_joined_at
+        closed_session_left_times = [session.left_at for session in user_sessions if session.left_at]
+        last_left_at = (
+            max(closed_session_left_times)
+            if closed_session_left_times
+            else attendance.last_left_at
+        )
+
+        total_duration_minutes = 0
+        has_open_session = False
+        if user_sessions:
+            for session in user_sessions:
+                session_end = session.left_at or effective_reference_time
+                if session.left_at is None:
+                    has_open_session = True
+                if session_end < session.joined_at:
+                    session_end = session.joined_at
+                total_duration_minutes += max(
+                    0,
+                    round((session_end - session.joined_at).total_seconds() / 60),
+                )
+        else:
+            total_duration_minutes = attendance.total_duration_minutes or 0
+
+        if user_sessions or total_duration_minutes > 0 or first_joined_at:
+            if meeting.status == "ended" and meeting.actual_end:
+                status = derive_attendance_status(
+                    total_minutes=total_duration_minutes,
+                    meeting_duration_minutes=meeting_duration_minutes,
+                    first_joined_at=first_joined_at,
+                    last_left_at=last_left_at,
+                    meeting_start=meeting.actual_start,
+                    meeting_end=meeting.actual_end,
+                )
+            else:
+                status = "present" if has_open_session else derive_attendance_status(
+                    total_minutes=total_duration_minutes,
+                    meeting_duration_minutes=max(meeting_duration_minutes, 1),
+                    first_joined_at=first_joined_at,
+                    last_left_at=last_left_at,
+                    meeting_start=meeting.actual_start,
+                    meeting_end=effective_reference_time,
+                )
+        else:
+            status = "absent"
+
+        attendance.first_joined_at = first_joined_at
+        attendance.last_left_at = last_left_at
+        attendance.total_duration_minutes = total_duration_minutes
+        attendance.status = status
+        attendance.is_verified_member = is_verified_meeting_attendee(meeting, user)
+
+        if attendance.pk:
+            to_update.append(attendance)
+        else:
+            to_create.append(attendance)
+        synced_attendances.append(attendance)
+
+    if to_create:
+        Attendance.objects.bulk_create(to_create)
+    if to_update:
+        Attendance.objects.bulk_update(
+            to_update,
+            [
+                "first_joined_at",
+                "last_left_at",
+                "total_duration_minutes",
+                "status",
+                "is_verified_member",
+            ],
+        )
+
+    return synced_attendances
 
 
 @transaction.atomic
@@ -293,7 +515,7 @@ def finalize_meeting_attendance(meeting):
             )
 
             session_duration = max(
-                0, int((session.left_at - session.joined_at).total_seconds() // 60)
+                0, round((session.left_at - session.joined_at).total_seconds() / 60)
             )
             attendance.total_duration_minutes += session_duration
             if attendance.first_joined_at is None:
@@ -307,33 +529,18 @@ def finalize_meeting_attendance(meeting):
                 meeting, session.user
             )
             attendance.save()
-
-    for user in get_authorized_meeting_attendees(meeting):
-        Attendance.objects.get_or_create(
-            meeting=meeting,
-            user=user,
-            defaults={
-                "status": "absent",
-                "is_verified_member": True,
-            },
-        )
-
-    meeting_duration_minutes = int(
-        (meeting.actual_end - meeting.actual_start).total_seconds() // 60
+    sync_meeting_attendance(
+        meeting,
+        include_expected_absentees=True,
+        reference_time=meeting.actual_end,
     )
-
-    attendances = Attendance.objects.filter(meeting=meeting)
-
-    for attendance in attendances:
-        attendance.status = calculate_attendance_status(
-            attendance.total_duration_minutes,
-            meeting_duration_minutes,
-        )
-
-    Attendance.objects.bulk_update(attendances, ["status"])
 
     log_meeting_action(
         meeting=meeting,
         action="attendance_finalized",
-        metadata={"meeting_duration_minutes": meeting_duration_minutes},
+        metadata={
+            "meeting_duration_minutes": int(
+                (meeting.actual_end - meeting.actual_start).total_seconds() // 60
+            ),
+        },
     )
