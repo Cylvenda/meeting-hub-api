@@ -228,24 +228,7 @@ def join_meeting(meeting, user, is_verified_member=True):
         user=user,
     )
 
-    attendance, created = Attendance.objects.get_or_create(
-        meeting=meeting,
-        user=user,
-        defaults={
-            "first_joined_at": session.joined_at,
-            "status": "present",
-            "is_verified_member": is_verified_member,
-        },
-    )
-
-    # Ensure first join is always recorded correctly
-    if not created:
-        if attendance.first_joined_at is None:
-            attendance.first_joined_at = session.joined_at
-
-        attendance.is_verified_member = is_verified_member
-        attendance.status = "present"
-        attendance.save()
+    sync_meeting_attendance(meeting, reference_time=timezone.now())
 
     log_meeting_action(
         meeting=meeting,
@@ -279,23 +262,7 @@ def leave_meeting(meeting, user):
     session.left_at = effective_left_at
     session.save()
 
-    attendance, _ = Attendance.objects.get_or_create(
-        meeting=meeting,
-        user=user,
-    )
-
-    # Only calculate current session impact
-    session_duration = (session.left_at - session.joined_at).total_seconds()
-
-    attendance.total_duration_minutes += round(session_duration / 60)
-
-    if attendance.first_joined_at is None:
-        attendance.first_joined_at = session.joined_at
-
-    attendance.last_left_at = effective_left_at
-    attendance.status = "present"  # temporary until finalization
-    attendance.is_verified_member = is_verified_meeting_attendee(meeting, user)
-    attendance.save()
+    sync_meeting_attendance(meeting, reference_time=effective_left_at)
 
     log_meeting_action(
         meeting=meeting,
@@ -307,27 +274,17 @@ def leave_meeting(meeting, user):
     return session
 
 
-def calculate_attendance_status(total_minutes, meeting_duration_minutes):
-    # Handle edge cases
-    if meeting_duration_minutes <= 0:
-        # If meeting duration is 0 or negative, check if user has any participation time
-        if total_minutes > 0:
-            return "present"  # User participated despite meeting duration issue
-        return "absent"
-
-    # If user has any participation time, calculate ratio
-    if total_minutes <= 0:
-        return "absent"
-
-    ratio = total_minutes / meeting_duration_minutes
-
-    # More lenient thresholds for attendance detection
-    if ratio >= 0.50:  # Reduced from 0.75 to 0.50
+def calculate_attendance_status(
+    total_minutes, 
+    meeting_duration_minutes, 
+    first_joined_at=None, 
+    last_left_at=None, 
+    meeting_start=None, 
+    meeting_end=None
+):
+    if first_joined_at or total_minutes > 0:
         return "present"
-    elif ratio >= 0.25:  # Reduced from 0.40 to 0.25
-        return "late"
-    else:
-        return "absent"
+    return "absent"
 
 
 def derive_attendance_status(
@@ -339,21 +296,14 @@ def derive_attendance_status(
     meeting_start=None,
     meeting_end=None,
 ):
-    status = calculate_attendance_status(total_minutes, meeting_duration_minutes)
-
-    if status == "present" and meeting_end and last_left_at:
-        # Treat someone as leaving early only when they were otherwise present
-        # but permanently disconnected with enough time remaining in the meeting.
-        if last_left_at <= meeting_end - timedelta(minutes=5):
-            return "left_early"
-
-    if status == "absent" and first_joined_at and total_minutes > 0:
-        return "late"
-
-    if status == "present" and meeting_start and first_joined_at:
-        if first_joined_at >= meeting_start + timedelta(minutes=10):
-            return "late"
-
+    status = calculate_attendance_status(
+        total_minutes, 
+        meeting_duration_minutes, 
+        first_joined_at, 
+        last_left_at, 
+        meeting_start, 
+        meeting_end
+    )
     return status
 
 
@@ -420,16 +370,18 @@ def sync_meeting_attendance(meeting, *, include_expected_absentees=False, refere
         total_duration_minutes = 0
         has_open_session = False
         if user_sessions:
+            total_duration_seconds = 0
             for session in user_sessions:
                 session_end = session.left_at or effective_reference_time
                 if session.left_at is None:
                     has_open_session = True
                 if session_end < session.joined_at:
                     session_end = session.joined_at
-                total_duration_minutes += max(
+                total_duration_seconds += max(
                     0,
-                    round((session_end - session.joined_at).total_seconds() / 60),
+                    (session_end - session.joined_at).total_seconds()
                 )
+            total_duration_minutes = max(1, round(total_duration_seconds / 60)) if total_duration_seconds > 0 else 0
         else:
             total_duration_minutes = attendance.total_duration_minutes or 0
 

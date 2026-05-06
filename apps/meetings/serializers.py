@@ -112,18 +112,20 @@ class ParticipantSessionSerializer(serializers.ModelSerializer):
     user = serializers.UUIDField(source="user.uuid", read_only=True)
     meeting = serializers.UUIDField(source="meeting.uuid", read_only=True)
     user_email = serializers.EmailField(source="user.email", read_only=True)
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
     id = serializers.UUIDField(source="uuid", read_only=True)
 
     class Meta:
         model = ParticipantSession
-        fields = ["id", "meeting", "user", "user_email", "joined_at", "left_at"]
-        read_only_fields = ["id", "meeting", "user", "joined_at", "left_at", "user_email"]
+        fields = ["id", "meeting", "user", "user_email", "user_name", "joined_at", "left_at"]
+        read_only_fields = ["id", "meeting", "user", "joined_at", "left_at", "user_email", "user_name"]
 
 
 class AttendanceSerializer(serializers.ModelSerializer):
     meeting = serializers.UUIDField(source="meeting.uuid", read_only=True)
     user = serializers.UUIDField(source="user.uuid", read_only=True)
     user_email = serializers.EmailField(source="user.email", read_only=True)
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
     id = serializers.UUIDField(source="uuid", read_only=True)
 
     class Meta:
@@ -133,6 +135,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
             "meeting",
             "user",
             "user_email",
+            "user_name",
             "first_joined_at",
             "last_left_at",
             "total_duration_minutes",
@@ -147,6 +150,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
             "status",
             "is_verified_member",
             "user_email",
+            "user_name",
         ]
 
 

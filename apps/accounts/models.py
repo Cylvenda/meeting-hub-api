@@ -49,7 +49,10 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def full_name(self):
-        return f"{self.first_name} {self.last_name}"
+        first = self.first_name or ""
+        last = self.last_name or ""
+        name = f"{first} {last}".strip()
+        return name if name else ""
 
     def __str__(self):
         return f"{self.first_name} | {self.email}"

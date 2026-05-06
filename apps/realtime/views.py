@@ -14,6 +14,7 @@ from .services import (
     resolve_live_meeting_user,
     user_can_join_live_meeting,
 )
+from apps.meetings.services import join_meeting
 
 
 class LiveKitTokenView(APIView):
@@ -47,6 +48,8 @@ class LiveKitTokenView(APIView):
                 {"detail": str(exc)},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+
+        join_meeting(meeting, request.user)
 
         response_data = {
             "token": token,

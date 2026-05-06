@@ -121,6 +121,7 @@ class MeetingViewSet(viewsets.ModelViewSet):
 
         # Initialize attendance records for all expected attendees
         initialize_meeting_attendance(meeting)
+        join_meeting(meeting, request.user)
 
         log_meeting_action(
             meeting=meeting,
@@ -157,6 +158,7 @@ class MeetingViewSet(viewsets.ModelViewSet):
 
         # Initialize attendance records for all expected attendees
         initialize_meeting_attendance(meeting)
+        join_meeting(meeting, request.user)
 
         log_meeting_action(
             meeting=meeting,

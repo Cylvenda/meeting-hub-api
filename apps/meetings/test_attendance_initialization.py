@@ -105,8 +105,8 @@ class AttendanceInitializationTest(APITestCase):
         host_attendance = Attendance.objects.get(meeting__uuid=meeting_uuid, user=self.host)
         member_attendance = Attendance.objects.get(meeting__uuid=meeting_uuid, user=self.member)
         
-        # Both should start as absent
-        self.assertEqual(host_attendance.status, "absent")
+        # Host should start as present, member as absent
+        self.assertEqual(host_attendance.status, "present")
         self.assertEqual(member_attendance.status, "absent")
         
         # Host should be verified, member should be verified
@@ -162,19 +162,22 @@ class AttendanceInitializationTest(APITestCase):
         
         meeting_uuid = response.data["id"]
         
-        # Initially absent
+        # Initially host is present, member is absent
         host_attendance = Attendance.objects.get(meeting__uuid=meeting_uuid, user=self.host)
-        self.assertEqual(host_attendance.status, "absent")
+        self.assertEqual(host_attendance.status, "present")
         
-        # Simulate user joining via service
+        member_attendance = Attendance.objects.get(meeting__uuid=meeting_uuid, user=self.member)
+        self.assertEqual(member_attendance.status, "absent")
+        
+        # Simulate member joining via service
         from apps.meetings.services import join_meeting
         meeting = Meeting.objects.get(uuid=meeting_uuid)
-        join_meeting(meeting, self.host)
+        join_meeting(meeting, self.member)
         
         # Should now be present
-        host_attendance.refresh_from_db()
-        self.assertEqual(host_attendance.status, "present")
-        self.assertIsNotNone(host_attendance.first_joined_at)
+        member_attendance.refresh_from_db()
+        self.assertEqual(member_attendance.status, "present")
+        self.assertIsNotNone(member_attendance.first_joined_at)
 
     def test_attendance_history_returns_present_users(self):
         """Test that meeting history returns list of present users"""
@@ -203,6 +206,10 @@ class AttendanceInitializationTest(APITestCase):
         meeting.actual_end = end_time
         meeting.status = "ended"
         meeting.save()
+        
+        # Delete the auto-created ParticipantSession for the host so sync_meeting_attendance
+        # doesn't clobber the dummy Attendance records we are about to create
+        meeting.participant_sessions.all().delete()
         
         # Create attendance records for host and member
         from apps.meetings.models import Attendance
